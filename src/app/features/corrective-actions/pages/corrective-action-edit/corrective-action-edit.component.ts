@@ -8,41 +8,31 @@ import {
 } from '@angular/core';
 import { Router } from '@angular/router';
 
-import { CorrectiveActionsPanelComponent } from '@features/corrective-actions/components/corrective-actions-panel/corrective-actions-panel.component';
 import { PageHeaderComponent } from '@shared/components/page-header/page-header.component';
 import { extractErrorMessage } from '@shared/utils/errors.util';
 
-import { InspectionFormComponent } from '../../components/inspection-form/inspection-form.component';
+import { CorrectiveActionFormComponent } from '../../components/corrective-action-form/corrective-action-form.component';
 import {
-  CreateInspectionPayload,
-  Inspection,
-} from '../../models/inspection.model';
-import { InspectionsService } from '../../services/inspections.service';
+  CorrectiveAction,
+  CreateCorrectiveActionPayload,
+} from '../../models/corrective-action.model';
+import { CorrectiveActionsService } from '../../services/corrective-actions.service';
 
-/**
- * Edit page. Loads the target inspection by `:id` (bound automatically via
- * `withComponentInputBinding()` in app.config.ts) and hands it off to the
- * shared form. Also hosts the delete action.
- */
 @Component({
-  selector: 'sot-inspection-edit',
+  selector: 'sot-corrective-action-edit',
   standalone: true,
-  imports: [
-    PageHeaderComponent,
-    InspectionFormComponent,
-    CorrectiveActionsPanelComponent,
-  ],
+  imports: [PageHeaderComponent, CorrectiveActionFormComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <sot-page-header
-      [title]="inspection()?.title ?? 'Edit inspection'"
+      [title]="action()?.title ?? 'Edit corrective action'"
       subtitle="Update details, reassign, or mark progress."
     >
       <button
         type="button"
         class="sot-btn sot-btn--ghost edit__delete"
         (click)="remove()"
-        [disabled]="deleting() || !inspection()"
+        [disabled]="deleting() || !action()"
       >
         {{ deleting() ? 'Deleting…' : 'Delete' }}
       </button>
@@ -53,19 +43,17 @@ import { InspectionsService } from '../../services/inspections.service';
     }
 
     @if (loading()) {
-      <div class="sot-state">Loading inspection…</div>
-    } @else if (!inspection()) {
-      <div class="sot-state">Inspection not found.</div>
+      <div class="sot-state">Loading action…</div>
+    } @else if (!action()) {
+      <div class="sot-state">Corrective action not found.</div>
     } @else {
-      <sot-inspection-form
+      <sot-corrective-action-form
         submitLabel="Save changes"
-        [initialValue]="inspection()"
+        [initialValue]="action()"
         [submitting]="submitting()"
         (submitted)="save($event)"
         (cancelled)="navigateToList()"
       />
-
-      <sot-corrective-actions-panel [inspectionId]="id()" />
     }
   `,
   styles: [
@@ -78,14 +66,14 @@ import { InspectionsService } from '../../services/inspections.service';
     `,
   ],
 })
-export class InspectionEditComponent implements OnInit {
-  private readonly service = inject(InspectionsService);
+export class CorrectiveActionEditComponent implements OnInit {
+  private readonly service = inject(CorrectiveActionsService);
   private readonly router = inject(Router);
 
-  /** Bound from the `:id` route param via withComponentInputBinding(). */
+  /** Bound from `:id` route param via withComponentInputBinding. */
   readonly id = input.required<string>();
 
-  protected readonly inspection = signal<Inspection | null>(null);
+  protected readonly action = signal<CorrectiveAction | null>(null);
   protected readonly loading = signal(false);
   protected readonly submitting = signal(false);
   protected readonly deleting = signal(false);
@@ -94,23 +82,23 @@ export class InspectionEditComponent implements OnInit {
   async ngOnInit(): Promise<void> {
     this.loading.set(true);
     try {
-      this.inspection.set(await this.service.getInspectionById(this.id()));
+      this.action.set(await this.service.getCorrectiveActionById(this.id()));
     } catch (err) {
       this.errorMessage.set(
-        extractErrorMessage(err, 'Could not load inspection.'),
+        extractErrorMessage(err, 'Could not load corrective action.'),
       );
     } finally {
       this.loading.set(false);
     }
   }
 
-  protected async save(payload: CreateInspectionPayload): Promise<void> {
+  protected async save(payload: CreateCorrectiveActionPayload): Promise<void> {
     this.submitting.set(true);
     this.errorMessage.set(null);
     try {
-      const updated = await this.service.updateInspection(this.id(), payload);
-      this.inspection.set(updated);
-      await this.router.navigate(['/app/inspections']);
+      const updated = await this.service.updateCorrectiveAction(this.id(), payload);
+      this.action.set(updated);
+      await this.router.navigate(['/app/corrective-actions']);
     } catch (err) {
       this.errorMessage.set(
         extractErrorMessage(err, 'Could not save changes. Please try again.'),
@@ -121,18 +109,16 @@ export class InspectionEditComponent implements OnInit {
   }
 
   protected async remove(): Promise<void> {
-    const target = this.inspection();
+    const target = this.action();
     if (!target) return;
-    const ok = window.confirm(
-      `Delete "${target.title}"? This cannot be undone.`,
-    );
+    const ok = window.confirm(`Delete "${target.title}"? This cannot be undone.`);
     if (!ok) return;
 
     this.deleting.set(true);
     this.errorMessage.set(null);
     try {
-      await this.service.deleteInspection(target.id);
-      await this.router.navigate(['/app/inspections']);
+      await this.service.deleteCorrectiveAction(target.id);
+      await this.router.navigate(['/app/corrective-actions']);
     } catch (err) {
       this.errorMessage.set(extractErrorMessage(err));
     } finally {
@@ -141,6 +127,6 @@ export class InspectionEditComponent implements OnInit {
   }
 
   protected navigateToList(): void {
-    void this.router.navigate(['/app/inspections']);
+    void this.router.navigate(['/app/corrective-actions']);
   }
 }

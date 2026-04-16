@@ -251,3 +251,17 @@ button,
     border: 1px solid #bfdbfe;
   }
 }
+
+/**
+ * Inline state message — shown for transient states like "Loading…" or
+ * "Not found." Sits inline with page content, so it's less visually heavy
+ * than an empty state card but still clearly communicates the state.
+ */
+.sot-state {
+  padding: var(--space-6);
+  text-align: center;
+  color: var(--color-text-muted);
+  background: var(--color-surface);
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-lg);
+}

@@ -3,6 +3,17 @@
 Mobile-first safety operations SaaS for high-risk industries. This repo is
 the web frontend + Supabase integration.
 
+## Documentation
+
+- [User guide](docs/user-guide.md) — for people using Soteria day-to-day.
+- [Admin & operator guide](docs/admin-guide.md) — for tenant admins and
+  the platform team.
+- [Changelog](docs/changelog.md) — what's shipped, in reverse order.
+
+The guides are kept in sync with the code as features land. If something
+in a guide doesn't match what you see in the app, the app wins — please
+flag the drift so we can patch the docs.
+
 ## Phase 1 — what's in here
 
 - Angular 19 standalone app with signals, lazy-loaded routes, and strict TS

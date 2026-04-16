@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/cor
 import { Router } from '@angular/router';
 
 import { PageHeaderComponent } from '@shared/components/page-header/page-header.component';
+import { extractErrorMessage } from '@shared/utils/errors.util';
 
 import { InspectionFormComponent } from '../../components/inspection-form/inspection-form.component';
 import { CreateInspectionPayload } from '../../models/inspection.model';
@@ -44,7 +45,9 @@ export class InspectionNewComponent {
       await this.service.createInspection(payload);
       await this.router.navigate(['/app/inspections']);
     } catch (err) {
-      this.errorMessage.set(extractMessage(err));
+      this.errorMessage.set(
+        extractErrorMessage(err, 'Could not create inspection. Please try again.'),
+      );
     } finally {
       this.submitting.set(false);
     }
@@ -53,9 +56,4 @@ export class InspectionNewComponent {
   protected navigateToList(): void {
     void this.router.navigate(['/app/inspections']);
   }
-}
-
-function extractMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  return 'Could not create inspection. Please try again.';
 }

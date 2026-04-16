@@ -16,38 +16,30 @@ import { IconComponent } from '@shared/components/icon/icon.component';
 import { PageHeaderComponent } from '@shared/components/page-header/page-header.component';
 import { extractErrorMessage } from '@shared/utils/errors.util';
 
-import { InspectionPriorityChipComponent } from '../../components/inspection-priority-chip/inspection-priority-chip.component';
-import { InspectionStatusChipComponent } from '../../components/inspection-status-chip/inspection-status-chip.component';
+import { CorrectiveActionPriorityChipComponent } from '../../components/corrective-action-priority-chip/corrective-action-priority-chip.component';
+import { CorrectiveActionStatusChipComponent } from '../../components/corrective-action-status-chip/corrective-action-status-chip.component';
 import {
-  INSPECTION_PRIORITY_LABEL,
-  INSPECTION_STATUS_LABEL,
-  INSPECTION_TYPE_LABEL,
-  Inspection,
-  InspectionFilters,
-  InspectionPriority,
-  InspectionStatus,
-} from '../../models/inspection.model';
-import { InspectionsService } from '../../services/inspections.service';
+  CORRECTIVE_ACTION_PRIORITY_LABEL,
+  CORRECTIVE_ACTION_STATUS_LABEL,
+  CorrectiveAction,
+  CorrectiveActionFilters,
+  CorrectiveActionPriority,
+  CorrectiveActionStatus,
+} from '../../models/corrective-action.model';
+import { CorrectiveActionsService } from '../../services/corrective-actions.service';
 
 const SEARCH_DEBOUNCE_MS = 250;
 
 /**
- * Inspections list page.
- *
- * Notes on a few non-obvious choices
- * ----------------------------------
- * * The list and the filter are independent signals. Filter writes kick a
- *   debounced refresh. Non-search filters refresh immediately.
- * * `refreshGeneration` is a monotonic counter used to ignore stale server
- *   responses — if a user changes filters faster than the network, the
- *   older request's result gets dropped instead of overwriting newer data.
- * * Assignee names are resolved via an in-memory map built from the tenant
- *   roster. This avoids a join on every query and keeps the service
- *   endpoint shape minimal. When the roster grows large we'll paginate it,
- *   but that's a separate problem from this page.
+ * Corrective actions list page — parallel to inspections list with one
+ * extra column (Linked inspection). Shares the same patterns:
+ *   - generation counter guards against stale filter responses
+ *   - assignee names resolved via tenant roster lookup
+ *   - distinct empty states for "none yet" vs "no matches"
+ *   - clear-filters button when any filter is active
  */
 @Component({
-  selector: 'sot-inspections-list',
+  selector: 'sot-corrective-actions-list',
   standalone: true,
   imports: [
     FormsModule,
@@ -55,18 +47,18 @@ const SEARCH_DEBOUNCE_MS = 250;
     PageHeaderComponent,
     EmptyStateComponent,
     IconComponent,
-    InspectionStatusChipComponent,
-    InspectionPriorityChipComponent,
+    CorrectiveActionStatusChipComponent,
+    CorrectiveActionPriorityChipComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <sot-page-header
-      title="Inspections"
-      subtitle="Plan, assign, and track safety inspections across your sites."
+      title="Corrective actions"
+      subtitle="Track findings, hazards, and compliance items through to resolution."
     >
       <a class="sot-btn sot-btn--primary" routerLink="new">
-        <sot-icon name="clipboard-check" [size]="16" />
-        <span>New inspection</span>
+        <sot-icon name="check-circle" [size]="16" />
+        <span>New action</span>
       </a>
     </sot-page-header>
 
@@ -139,34 +131,32 @@ const SEARCH_DEBOUNCE_MS = 250;
     </section>
 
     @if (errorMessage()) {
-      <div class="sot-alert sot-alert--error" role="alert">
-        {{ errorMessage() }}
-      </div>
+      <div class="sot-alert sot-alert--error" role="alert">{{ errorMessage() }}</div>
     }
 
     <div class="list-meta">
       <span class="list-meta__count">
-        {{ inspections().length }}
-        {{ inspections().length === 1 ? 'inspection' : 'inspections' }}
+        {{ actions().length }}
+        {{ actions().length === 1 ? 'action' : 'actions' }}
       </span>
       @if (loading()) {
         <span class="list-meta__loading">Refreshing…</span>
       }
     </div>
 
-    @if (loading() && inspections().length === 0) {
-      <div class="sot-state">Loading inspections…</div>
-    } @else if (inspections().length === 0 && !hasActiveFilters()) {
+    @if (loading() && actions().length === 0) {
+      <div class="sot-state">Loading corrective actions…</div>
+    } @else if (actions().length === 0 && !hasActiveFilters()) {
       <sot-empty-state
-        title="No inspections yet"
-        body="Create your first inspection to get started. You can edit and reassign it any time."
+        title="No corrective actions yet"
+        body="Create your first action to start tracking findings and hazards through to resolution."
       >
-        <a class="sot-btn sot-btn--primary" routerLink="new">New inspection</a>
+        <a class="sot-btn sot-btn--primary" routerLink="new">New action</a>
       </sot-empty-state>
-    } @else if (inspections().length === 0) {
+    } @else if (actions().length === 0) {
       <sot-empty-state
         title="No matches"
-        body="No inspections match the current filters. Try clearing them or broadening your search."
+        body="No actions match the current filters. Try clearing them or broadening your search."
       >
         <button type="button" class="sot-btn sot-btn--ghost" (click)="clearFilters()">
           Clear filters
@@ -178,7 +168,7 @@ const SEARCH_DEBOUNCE_MS = 250;
           <thead>
             <tr>
               <th scope="col">Title</th>
-              <th scope="col">Type</th>
+              <th scope="col">Linked inspection</th>
               <th scope="col">Status</th>
               <th scope="col">Priority</th>
               <th scope="col">Assignee</th>
@@ -187,32 +177,43 @@ const SEARCH_DEBOUNCE_MS = 250;
             </tr>
           </thead>
           <tbody>
-            @for (inspection of inspections(); track inspection.id) {
+            @for (action of actions(); track action.id) {
               <tr>
                 <td>
-                  <a class="table__title-link" [routerLink]="[inspection.id, 'edit']">
-                    {{ inspection.title }}
+                  <a class="table__title-link" [routerLink]="[action.id, 'edit']">
+                    {{ action.title }}
                   </a>
-                  @if (inspection.description) {
-                    <p class="table__description">{{ inspection.description }}</p>
+                  @if (action.description) {
+                    <p class="table__description">{{ action.description }}</p>
                   }
                 </td>
-                <td>{{ typeLabel(inspection) }}</td>
-                <td><sot-inspection-status-chip [status]="inspection.status" /></td>
-                <td><sot-inspection-priority-chip [priority]="inspection.priority" /></td>
-                <td>{{ assigneeName(inspection.assignedTo) }}</td>
-                <td>{{ inspection.dueDate ?? '—' }}</td>
+                <td>
+                  @if (action.linkedInspection) {
+                    <a
+                      class="table__link"
+                      [routerLink]="['/app/inspections', action.linkedInspection.id, 'edit']"
+                    >
+                      {{ action.linkedInspection.title }}
+                    </a>
+                  } @else {
+                    <span class="table__muted">—</span>
+                  }
+                </td>
+                <td><sot-corrective-action-status-chip [status]="action.status" /></td>
+                <td><sot-corrective-action-priority-chip [priority]="action.priority" /></td>
+                <td>{{ assigneeName(action.assignedTo) }}</td>
+                <td>{{ action.dueDate ?? '—' }}</td>
                 <td class="table__actions">
                   <a
                     class="sot-btn sot-btn--ghost table__btn"
-                    [routerLink]="[inspection.id, 'edit']"
-                    aria-label="Edit inspection"
+                    [routerLink]="[action.id, 'edit']"
+                    aria-label="Edit corrective action"
                   >Edit</a>
                   <button
                     type="button"
                     class="sot-btn sot-btn--ghost table__btn table__btn--danger"
-                    (click)="confirmDelete(inspection)"
-                    aria-label="Delete inspection"
+                    (click)="confirmDelete(action)"
+                    aria-label="Delete corrective action"
                   >Delete</button>
                 </td>
               </tr>
@@ -231,10 +232,7 @@ const SEARCH_DEBOUNCE_MS = 250;
         margin-bottom: var(--space-4);
       }
       .filters__field { display: flex; flex-direction: column; }
-      .filters__clear {
-        display: flex;
-        align-items: flex-end;
-      }
+      .filters__clear { display: flex; align-items: flex-end; }
 
       .list-meta {
         display: flex;
@@ -295,6 +293,9 @@ const SEARCH_DEBOUNCE_MS = 250;
         white-space: nowrap;
       }
 
+      .table__link { color: var(--color-primary); }
+      .table__muted { color: var(--color-text-subtle); }
+
       .table__actions-col { width: 1%; white-space: nowrap; text-align: right; }
       .table__actions { display: flex; gap: var(--space-2); justify-content: flex-end; }
 
@@ -304,18 +305,17 @@ const SEARCH_DEBOUNCE_MS = 250;
     `,
   ],
 })
-export class InspectionsListComponent implements OnInit {
-  private readonly service = inject(InspectionsService);
+export class CorrectiveActionsListComponent implements OnInit {
+  private readonly service = inject(CorrectiveActionsService);
   private readonly tenants = inject(TenantService);
   private readonly destroyRef = inject(DestroyRef);
 
-  protected readonly inspections = signal<Inspection[]>([]);
+  protected readonly actions = signal<CorrectiveAction[]>([]);
   protected readonly members = signal<TenantMember[]>([]);
   protected readonly loading = signal(false);
   protected readonly errorMessage = signal<string | null>(null);
-  protected readonly filters = signal<InspectionFilters>({});
+  protected readonly filters = signal<CorrectiveActionFilters>({});
 
-  /** True if any filter is active; powers the "Clear filters" affordance. */
   protected readonly hasActiveFilters = computed(() => {
     const f = this.filters();
     return !!(
@@ -326,7 +326,6 @@ export class InspectionsListComponent implements OnInit {
     );
   });
 
-  /** id → "First Last" lookup built once per roster load. */
   private readonly memberLookup = computed(() => {
     const map = new Map<string, string>();
     for (const m of this.members()) {
@@ -336,24 +335,16 @@ export class InspectionsListComponent implements OnInit {
   });
 
   protected readonly statusOptions = (
-    Object.keys(INSPECTION_STATUS_LABEL) as InspectionStatus[]
-  ).map((value) => ({ value, label: INSPECTION_STATUS_LABEL[value] }));
+    Object.keys(CORRECTIVE_ACTION_STATUS_LABEL) as CorrectiveActionStatus[]
+  ).map((value) => ({ value, label: CORRECTIVE_ACTION_STATUS_LABEL[value] }));
 
   protected readonly priorityOptions = (
-    Object.keys(INSPECTION_PRIORITY_LABEL) as InspectionPriority[]
-  ).map((value) => ({ value, label: INSPECTION_PRIORITY_LABEL[value] }));
-
-  protected readonly typeLabel = (i: Inspection): string =>
-    INSPECTION_TYPE_LABEL[i.inspectionType] ?? i.inspectionType;
+    Object.keys(CORRECTIVE_ACTION_PRIORITY_LABEL) as CorrectiveActionPriority[]
+  ).map((value) => ({ value, label: CORRECTIVE_ACTION_PRIORITY_LABEL[value] }));
 
   protected readonly assigneeName = (id: string | null): string =>
     id ? this.memberLookup().get(id) ?? 'Unknown' : 'Unassigned';
 
-  /**
-   * Monotonic counter. Each refresh bumps it; if a response comes back
-   * with a stale generation, we drop it. Prevents out-of-order writes
-   * to `inspections` when the user changes filters faster than the network.
-   */
   private refreshGeneration = 0;
   private searchDebounce: ReturnType<typeof setTimeout> | null = null;
 
@@ -364,16 +355,13 @@ export class InspectionsListComponent implements OnInit {
   }
 
   async ngOnInit(): Promise<void> {
-    // Fire the roster load in parallel with the first refresh — users see
-    // the table render before the assignee names resolve, but that's fine:
-    // assignee cells show 'Unknown' briefly and then update.
     void this.tenants.getTenantMembers().then((rows) => this.members.set(rows));
     await this.refresh();
   }
 
-  protected onFilterChange<K extends keyof InspectionFilters>(
+  protected onFilterChange<K extends keyof CorrectiveActionFilters>(
     key: K,
-    value: InspectionFilters[K],
+    value: CorrectiveActionFilters[K],
   ): void {
     this.filters.update((f) => ({ ...f, [key]: value }));
     void this.refresh();
@@ -390,15 +378,12 @@ export class InspectionsListComponent implements OnInit {
     void this.refresh();
   }
 
-  protected async confirmDelete(inspection: Inspection): Promise<void> {
-    const ok = window.confirm(
-      `Delete "${inspection.title}"? This cannot be undone.`,
-    );
+  protected async confirmDelete(action: CorrectiveAction): Promise<void> {
+    const ok = window.confirm(`Delete "${action.title}"? This cannot be undone.`);
     if (!ok) return;
-
     try {
-      await this.service.deleteInspection(inspection.id);
-      this.inspections.update((list) => list.filter((r) => r.id !== inspection.id));
+      await this.service.deleteCorrectiveAction(action.id);
+      this.actions.update((list) => list.filter((r) => r.id !== action.id));
     } catch (err) {
       this.errorMessage.set(extractErrorMessage(err));
     }
@@ -409,9 +394,9 @@ export class InspectionsListComponent implements OnInit {
     this.loading.set(true);
     this.errorMessage.set(null);
     try {
-      const rows = await this.service.getInspections(this.filters());
-      if (generation !== this.refreshGeneration) return; // stale response; ignore
-      this.inspections.set(rows);
+      const rows = await this.service.getCorrectiveActions(this.filters());
+      if (generation !== this.refreshGeneration) return;
+      this.actions.set(rows);
     } catch (err) {
       if (generation !== this.refreshGeneration) return;
       this.errorMessage.set(extractErrorMessage(err));

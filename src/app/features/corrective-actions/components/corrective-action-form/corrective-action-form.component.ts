@@ -8,39 +8,38 @@ import {
   output,
   signal,
 } from '@angular/core';
-import {
-  FormBuilder,
-  ReactiveFormsModule,
-  Validators,
-} from '@angular/forms';
+import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 
 import { TenantMember, TenantService } from '@core/services/tenant.service';
+import { Inspection } from '@features/inspections/models/inspection.model';
+import { InspectionsService } from '@features/inspections/services/inspections.service';
 
 import {
-  CreateInspectionPayload,
-  INSPECTION_PRIORITY_LABEL,
-  INSPECTION_STATUS_LABEL,
-  INSPECTION_TYPE_LABEL,
-  Inspection,
-  InspectionPriority,
-  InspectionStatus,
-  InspectionType,
-} from '../../models/inspection.model';
+  CORRECTIVE_ACTION_PRIORITY_LABEL,
+  CORRECTIVE_ACTION_STATUS_LABEL,
+  CorrectiveAction,
+  CorrectiveActionPriority,
+  CorrectiveActionStatus,
+  CreateCorrectiveActionPayload,
+} from '../../models/corrective-action.model';
 
-/** Column-width caps match the DB side (text columns, plus a sane UI cap). */
 const TITLE_MAX = 200;
 const DESCRIPTION_MAX = 2000;
 
 /**
- * Reusable reactive form shared by the create and edit pages.
+ * Reusable reactive form shared by create and edit pages.
  *
- * The form is deliberately dumb: it emits `submitted` with a typed payload
- * and the host page is responsible for calling the service and navigating
- * afterwards. This keeps the form trivially testable and means the same
- * component works for both create and edit without branching internally.
+ * Two ways to pre-fill linkage to an inspection:
+ *   1. Pass a full `initialValue` (edit mode) — any fields are hydrated.
+ *   2. Pass `initialInspectionId` (new-from-inspection-context mode) — the
+ *      dropdown starts pre-selected. Takes precedence only when there's
+ *      no `initialValue` to hydrate from.
+ *
+ * The form is deliberately dumb. It emits `submitted` with a typed payload
+ * and the host is responsible for calling the service and navigating.
  */
 @Component({
-  selector: 'sot-inspection-form',
+  selector: 'sot-corrective-action-form',
   standalone: true,
   imports: [ReactiveFormsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -57,8 +56,7 @@ const DESCRIPTION_MAX = 2000;
             class="sot-input"
             formControlName="title"
             [attr.maxlength]="titleMax"
-            placeholder="e.g. Morning safety walk — Bay 3"
-            #titleInput
+            placeholder="e.g. Replace cracked guard on saw #4"
           />
           @if (showError('title')) {
             <p class="form__error" role="alert">
@@ -71,17 +69,6 @@ const DESCRIPTION_MAX = 2000;
               }
             </p>
           }
-        </div>
-
-        <div class="form__field">
-          <label class="sot-label" for="type">
-            Type <span class="form__required" aria-hidden="true">*</span>
-          </label>
-          <select id="type" class="sot-input" formControlName="inspectionType">
-            @for (opt of typeOptions; track opt.value) {
-              <option [ngValue]="opt.value">{{ opt.label }}</option>
-            }
-          </select>
         </div>
 
         <div class="form__field">
@@ -114,7 +101,7 @@ const DESCRIPTION_MAX = 2000;
           />
         </div>
 
-        <div class="form__field form__field--span-2">
+        <div class="form__field">
           <label class="sot-label" for="assignedTo">Assigned to</label>
           <select id="assignedTo" class="sot-input" formControlName="assignedTo">
             <option [ngValue]="null">— Unassigned —</option>
@@ -127,14 +114,32 @@ const DESCRIPTION_MAX = 2000;
         </div>
 
         <div class="form__field form__field--span-2">
-          <label class="sot-label" for="description">Description</label>
+          <label class="sot-label" for="inspectionId">Linked inspection</label>
+          <select
+            id="inspectionId"
+            class="sot-input"
+            formControlName="inspectionId"
+          >
+            <option [ngValue]="null">— Not linked —</option>
+            @for (i of inspections(); track i.id) {
+              <option [ngValue]="i.id">{{ i.title }}</option>
+            }
+          </select>
+          <p class="form__hint">
+            Link this action to an inspection when it addresses a finding from
+            that inspection. Leave unlinked for ad-hoc hazards or audit items.
+          </p>
+        </div>
+
+        <div class="form__field form__field--span-2">
+          <label class="sot-label" for="description">Description / notes</label>
           <textarea
             id="description"
             class="sot-input form__textarea"
             formControlName="description"
             [attr.maxlength]="descriptionMax"
             rows="4"
-            placeholder="What's being inspected, scope, safety notes…"
+            placeholder="What needs to be done, constraints, parts needed…"
           ></textarea>
           @if (showError('description')) {
             <p class="form__error" role="alert">
@@ -197,6 +202,12 @@ const DESCRIPTION_MAX = 2000;
         margin-top: 4px;
       }
 
+      .form__hint {
+        color: var(--color-text-subtle);
+        font-size: var(--font-size-sm);
+        margin-top: 4px;
+      }
+
       .form__actions {
         display: flex;
         justify-content: flex-end;
@@ -213,32 +224,32 @@ const DESCRIPTION_MAX = 2000;
     `,
   ],
 })
-export class InspectionFormComponent implements OnInit {
+export class CorrectiveActionFormComponent implements OnInit {
   private readonly fb = inject(FormBuilder);
   private readonly tenants = inject(TenantService);
+  private readonly inspectionsService = inject(InspectionsService);
 
-  /** When provided, the form hydrates from it on init (edit flow). */
-  readonly initialValue = input<Inspection | null>(null);
-  /** Driven by the host so button text matches (e.g. "Create" vs "Save"). */
+  readonly initialValue = input<CorrectiveAction | null>(null);
+  readonly initialInspectionId = input<string | null>(null);
   readonly submitLabel = input<string>('Save');
-  /** True while the save is in flight; disables the submit button. */
   readonly submitting = input<boolean>(false);
 
-  /** Emitted with a payload ready for InspectionsService.create / update. */
-  readonly submitted = output<CreateInspectionPayload>();
+  readonly submitted = output<CreateCorrectiveActionPayload>();
   readonly cancelled = output<void>();
 
   protected readonly members = signal<TenantMember[]>([]);
+  protected readonly inspections = signal<Array<Pick<Inspection, 'id' | 'title'>>>([]);
 
   protected readonly titleMax = TITLE_MAX;
   protected readonly descriptionMax = DESCRIPTION_MAX;
 
-  protected readonly typeOptions = labelOptions<InspectionType>(INSPECTION_TYPE_LABEL);
-  protected readonly statusOptions = labelOptions<InspectionStatus>(INSPECTION_STATUS_LABEL);
-  protected readonly priorityOptions = labelOptions<InspectionPriority>(INSPECTION_PRIORITY_LABEL);
+  protected readonly statusOptions = labelOptions<CorrectiveActionStatus>(
+    CORRECTIVE_ACTION_STATUS_LABEL,
+  );
+  protected readonly priorityOptions = labelOptions<CorrectiveActionPriority>(
+    CORRECTIVE_ACTION_PRIORITY_LABEL,
+  );
 
-  // Typed form — Angular infers the FormGroup type from the nonNullable
-  // controls so `form.controls.title.value` is `string`, etc.
   protected readonly form = this.fb.nonNullable.group({
     title: this.fb.nonNullable.control('', [
       Validators.required,
@@ -248,33 +259,48 @@ export class InspectionFormComponent implements OnInit {
     description: this.fb.nonNullable.control('', [
       Validators.maxLength(DESCRIPTION_MAX),
     ]),
-    inspectionType: this.fb.nonNullable.control<InspectionType>('general'),
-    priority: this.fb.nonNullable.control<InspectionPriority>('medium'),
-    status: this.fb.nonNullable.control<InspectionStatus>('draft'),
+    priority: this.fb.nonNullable.control<CorrectiveActionPriority>('medium'),
+    status: this.fb.nonNullable.control<CorrectiveActionStatus>('open'),
+    inspectionId: this.fb.control<string | null>(null),
     assignedTo: this.fb.control<string | null>(null),
     dueDate: this.fb.control<string | null>(null),
   });
 
   constructor() {
-    // Hydrate whenever the host swaps in a different inspection.
+    // Hydrate from either a full initialValue or just an inspection id.
+    // `initialValue` wins when both are set.
     effect(() => {
       const initial = this.initialValue();
       if (initial) {
         this.form.patchValue({
           title: initial.title,
           description: initial.description,
-          inspectionType: initial.inspectionType,
           priority: initial.priority,
           status: initial.status,
+          inspectionId: initial.inspectionId,
           assignedTo: initial.assignedTo,
           dueDate: initial.dueDate,
         });
+        return;
+      }
+      const preset = this.initialInspectionId();
+      if (preset) {
+        this.form.patchValue({ inspectionId: preset });
       }
     });
   }
 
   async ngOnInit(): Promise<void> {
-    this.members.set(await this.tenants.getTenantMembers());
+    // Load the picker data in parallel — both calls are RLS-scoped so
+    // we never see other tenants' rows.
+    const [members, inspections] = await Promise.all([
+      this.tenants.getTenantMembers(),
+      this.inspectionsService
+        .getInspections()
+        .then((rows) => rows.map((r) => ({ id: r.id, title: r.title }))),
+    ]);
+    this.members.set(members);
+    this.inspections.set(inspections);
   }
 
   protected showError(name: keyof typeof this.form.controls): boolean {
@@ -291,11 +317,10 @@ export class InspectionFormComponent implements OnInit {
     this.submitted.emit({
       title: value.title.trim(),
       description: value.description.trim(),
-      inspectionType: value.inspectionType,
       priority: value.priority,
       status: value.status,
+      inspectionId: value.inspectionId,
       assignedTo: value.assignedTo,
-      // Empty date input comes back as '' — normalize to null.
       dueDate: value.dueDate || null,
     });
   }

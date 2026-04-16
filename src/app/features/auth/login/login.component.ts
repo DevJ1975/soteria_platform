@@ -3,6 +3,7 @@ import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
 import { AuthService } from '@core/services/auth.service';
+import { extractErrorMessage } from '@shared/utils/errors.util';
 
 @Component({
   selector: 'sot-login',
@@ -113,14 +114,9 @@ export class LoginComponent {
       const returnUrl = this.route.snapshot.queryParamMap.get('returnUrl') ?? '/app';
       await this.router.navigateByUrl(returnUrl);
     } catch (err) {
-      this.errorMessage.set(extractMessage(err));
+      this.errorMessage.set(extractErrorMessage(err));
     } finally {
       this.submitting.set(false);
     }
   }
-}
-
-function extractMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  return 'Something went wrong. Please try again.';
 }

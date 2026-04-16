@@ -3,6 +3,7 @@ import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
 import { AuthService } from '@core/services/auth.service';
+import { extractErrorMessage } from '@shared/utils/errors.util';
 
 @Component({
   selector: 'sot-signup',
@@ -133,14 +134,9 @@ export class SignupComponent {
       );
       this.form.reset();
     } catch (err) {
-      this.errorMessage.set(extractMessage(err));
+      this.errorMessage.set(extractErrorMessage(err));
     } finally {
       this.submitting.set(false);
     }
   }
-}
-
-function extractMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  return 'Something went wrong. Please try again.';
 }
