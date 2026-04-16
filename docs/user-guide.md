@@ -14,6 +14,8 @@ Welcome to Soteria, the mobile-first safety operations platform for high-risk in
 - [The dashboard](#the-dashboard)
 - [Inspections](#inspections)
 - [Corrective actions](#corrective-actions)
+- [Equipment](#equipment)
+- [Incident reports](#incident-reports)
 - [Your role](#your-role)
 - [What's next](#whats-next)
 
@@ -225,6 +227,137 @@ jump to it.
 
 ---
 
+## Equipment
+
+The Equipment module at `/app/equipment` is the asset register plus a
+log of safety checks performed against each asset.
+
+### Register a piece of equipment
+
+From the list page click **New equipment**. Required fields:
+
+- **Name** (e.g. "Yard forklift #3")
+- **Asset tag** — unique within your organization. Case-insensitive,
+  so "FL-03" and "fl-03" are treated as the same tag.
+- **Type** — Forklift, Scissor lift, Boom lift, Pallet jack, Truck,
+  Trailer, or Other.
+
+Optional: manufacturer, model, serial number. Only admins and
+supervisors can register or edit equipment; workers record checks.
+
+### Record a check
+
+From an equipment's detail page, click **Record check**. The form
+asks for:
+
+- **Outcome** — Pass · Needs attention · Fail. This is the big
+  decision on the form; on mobile it's a three-button segmented
+  control.
+- **Check type** — Pre-use, Daily, Weekly, Monthly, Walkaround,
+  Condition, or Other.
+- **Performed at** — defaults to now. You can backdate if you're
+  logging a check retroactively; future times aren't allowed.
+- **Notes** — anything worth recording.
+
+After save, you return to the equipment's detail page and the new
+check appears at the top of the history panel.
+
+### Check history
+
+The detail page shows every check ever recorded against this
+equipment, newest first, with the performer's name and outcome. A
+count like "3 actionable" appears in the panel header when any of
+the loaded checks are Fail or Needs attention.
+
+### Deleting equipment
+
+Only admins can delete an equipment record. Deleting cascades the
+check history — you're warned explicitly before it happens.
+
+---
+
+## Incident reports
+
+The Incidents & Near Misses module at `/app/incident-reports` is where
+you file structured records of safety events and observations.
+
+### What counts as a report?
+
+Six types, all logged through the same form:
+
+| Type | When to use |
+| --- | --- |
+| **Incident** | An event that caused harm, damage, or a dangerous condition. |
+| **Near miss** | An event that could have caused harm but didn't. |
+| **Injury** | Any personal injury, however minor. |
+| **Property damage** | Damage to equipment, vehicles, structures, or materials. |
+| **Unsafe condition** | A hazardous state that hasn't yet caused an event. |
+| **Observation** | A safety-relevant note — positive or negative — worth capturing. |
+
+### Filing a report
+
+Click **New report** on the list page. The form is grouped into
+four sections so you can move through it logically:
+
+1. **What happened** — title, type, severity, when it occurred,
+   description.
+2. **Where & who** — location, people involved (free-text for now;
+   a structured witness list is planned).
+3. **Response** — immediate actions taken on the spot; follow-up
+   notes for what still needs to happen.
+4. **Status** — where this report is in the investigation
+   lifecycle.
+
+You can save as **Draft** and come back later — the form won't
+hold you up just because you haven't finished the narrative.
+
+### Severity
+
+Five levels, from least to most urgent:
+
+| Level | When to use |
+| --- | --- |
+| **Informational** | Observations and notes with no immediate risk. |
+| **Low** | Minor event, no injury or damage. |
+| **Medium** | First-aid-level injury, near miss with real potential. |
+| **High** | Lost-time injury, significant damage. |
+| **Critical** | Serious injury, fatality, major property damage. |
+
+### Status lifecycle
+
+| Status | Meaning |
+| --- | --- |
+| **Draft** | Being written. Not yet a formal report. |
+| **Submitted** | Filed and awaiting review. |
+| **Investigating** | Being actively looked into. |
+| **Closed** | Resolved. The closed date is stamped automatically; reverting to any other status clears it. |
+
+### Report detail view
+
+Clicking a report's title opens a read-mostly detail page with the
+narrative laid out as a document — one card per section. This is
+the view safety leads will use when they review or share a report
+with management.
+
+### Filtering and searching
+
+The list page supports:
+
+- **Search title** — partial match.
+- **Status** — including an "Open" shortcut that matches anything
+  not yet closed.
+- **Type** · **Severity** · **Reported by**.
+- **Clear filters** when any are active.
+
+### Who can do what
+
+- **Workers** can file reports and edit reports they filed. They
+  can't delete (reports are an audit artifact).
+- **Supervisors and admins** can edit and delete any report in
+  the tenant.
+
+---
+
 ## Your role
 
 Soteria distinguishes four roles:
@@ -247,14 +380,8 @@ disappearing.
 
 ## What's next
 
-The sidebar will eventually include more modules. One is still a
-placeholder today:
+These are on the roadmap but not yet in the product:
 
-- **Equipment Checks** — pre-use checks for vehicles, tools, and PPE.
-
-And these are on the roadmap but not yet in the product:
-
-- Incidents & near-miss reporting
 - Toolbox talks / training
 - Heat compliance
 - LOTO (lockout / tagout)

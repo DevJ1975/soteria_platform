@@ -61,6 +61,14 @@ export const APP_ROUTES: Routes = [
             (m) => m.CORRECTIVE_ACTIONS_ROUTES,
           ),
       },
+      {
+        path: 'incident-reports',
+        canActivate: [moduleGuard('incidents')],
+        loadChildren: () =>
+          import('./features/incident-reports/incident-reports.routes').then(
+            (m) => m.INCIDENT_REPORTS_ROUTES,
+          ),
+      },
     ],
   },
   { path: '**', redirectTo: 'app' },

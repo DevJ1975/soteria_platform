@@ -116,9 +116,9 @@ module even if they try.
 | Key | Name | Available today |
 | --- | --- | :---: |
 | `inspections` | Inspections | ✅ full UI |
-| `equipment_checks` | Equipment Checks | ✅ placeholder UI |
+| `equipment_checks` | Equipment | ✅ full UI (asset register + check history) |
 | `corrective_actions` | Corrective Actions | ✅ full UI |
-| `incidents` | Incidents & Near Misses | not yet |
+| `incidents` | Incidents & Near Misses | ✅ full UI |
 | `toolbox_talks` | Toolbox Talks | not yet |
 | `heat_compliance` | Heat Compliance | not yet |
 | `loto` | LOTO | not yet |
@@ -165,6 +165,9 @@ To surface a **new** module, all three of these must be true:
 | `tenant_modules` | Per-tenant toggle + config for each module. |
 | `inspections` | First business table — tenant-scoped inspection records. |
 | `corrective_actions` | Remediation items. Optional FK to `inspections`. |
+| `equipment` | Asset register. Unique asset tag per tenant. |
+| `equipment_checks` | Check history against equipment. Denormalized tenant_id with alignment trigger. |
+| `incident_reports` | Incidents, near misses, injuries, observations. |
 
 ### RLS surface
 
@@ -186,6 +189,11 @@ Current migrations:
 | `20260416120001_row_level_security.sql` | `current_tenant_id()`, `current_user_role()`, and RLS policies for the four core tables. |
 | `20260416120002_inspections.sql` | `inspections` table, enums, indexes, four RLS policies. |
 | `20260416120003_corrective_actions.sql` | `corrective_actions` table, enums, indexes, four RLS policies. Nullable FK to `inspections` (`on delete set null`) so the audit trail survives inspection deletion. |
+| `20260416120004_corrective_actions_cross_tenant_guard.sql` | Trigger rejecting cross-tenant `inspection_id` on corrective_actions. |
+| `20260416120005_equipment.sql` | `equipment` table, enum, indexes, four RLS policies, per-tenant case-insensitive unique asset_tag. |
+| `20260416120006_equipment_checks.sql` | `equipment_checks` table, enum, indexes, four RLS policies, cross-tenant alignment trigger. |
+| `20260416120007_incident_reports.sql` | `incident_reports` table, three enums, indexes, four RLS policies. |
+| `20260416120008_enable_incidents_module.sql` | Flips `modules.is_available = true` for `incidents`, backfills `tenant_modules` for existing tenants, updates `handle_new_user` to enable the module for new signups. |
 
 ---
 

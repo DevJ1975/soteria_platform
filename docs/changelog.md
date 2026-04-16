@@ -8,6 +8,45 @@ What's shipped, in reverse chronological order.
 
 ---
 
+## 2026-04-16 — Phase 6: Incident / Near Miss Reporting
+
+Not committed yet at time of writing.
+
+### Schema
+
+- SQL migration [`20260416120007_incident_reports.sql`](../supabase/migrations/20260416120007_incident_reports.sql):
+  - Three enums — `incident_report_type` (6 values), `incident_report_severity` (5 levels), `incident_report_status` (4-stage lifecycle).
+  - `incident_reports` table with separate `event_occurred_at` (operational) and `created_at` (audit) timestamps; free-text fields for involved people, immediate actions, and follow-up notes while waiting on richer structure in v2.
+  - Indexes for the six query shapes the list page uses (tenant, status, severity, type, event_date, reporter).
+  - Four RLS policies — read tenant, insert self (reported_by must equal auth.uid()), update staff-or-reporter, delete staff-only.
+  - No DB trigger for `closed_at`; the service layer handles the one-terminal-state rule.
+- SQL migration [`20260416120008_enable_incidents_module.sql`](../supabase/migrations/20260416120008_enable_incidents_module.sql):
+  - Flips `modules.is_available = true` for key `incidents`.
+  - Backfills `tenant_modules` for every existing tenant (idempotent via `on conflict do update`).
+  - Replaces `handle_new_user` to include `incidents` among the default-enabled modules for new signups.
+
+### Angular
+
+- Models, labels, filter shape, and `OPEN_INCIDENT_STATUSES` constant exported from a single source file.
+- `IncidentReportsService` with CRUD + `getOpenIncidentReports()` + `getReportsByType()` + `closed_at` rule (stamp on transition to `closed`, clear on transition away).
+- Severity and status chips (colour scale on severity — informational → critical — matches the urgency).
+- `IncidentReportFormComponent` laid out in four sections (What happened · Where & who · Response · Status) because the form is wider than other modules and sectioning makes it less of a wall.
+- `max` attribute on the event datetime input so future events can't be filed.
+- Re-hydration guard + `lastPatchedId` — same pattern as every other form.
+- Pages: list · new · `:id` (detail, document-like narrative) · `:id/edit`. Detail page is the first incident-related page designed as a host for the future corrective-action-from-incident panel.
+
+### Module activation
+
+- `MODULE_CATALOGUE.incidents` flipped to `isAvailable: true` with `route: 'incident-reports'` (DB key stays `incidents` for stability).
+- `app.routes.ts` mounts `/app/incident-reports` under `moduleGuard('incidents')`.
+
+### Docs
+
+- User guide: new Incidents section + previously-missing Equipment section, roadmap trimmed.
+- Admin guide: module catalogue and migration ledger updated, three new table rows, two new migrations listed.
+
+---
+
 ## 2026-04-16 — Phase 5 review: Equipment hardening
 
 Not committed yet at time of writing.
@@ -358,22 +397,23 @@ Shipped in commit [`54ebd83`](https://github.com/DevJ1975/soteria_platform/commi
 
 Nothing dated yet. Likely next increments:
 
-- **Failed-check → corrective-action flow** — on a failed or
-  needs-attention check, surface a "Create corrective action" button
-  that deep-links to the CA form with the equipment + check pre-filled.
-  The CA schema would gain an optional `equipment_check_id` FK
-  (mirroring the existing `inspection_id` pattern). Exercises the
-  cross-module linkage the platform was designed for.
-- **Open-issues badges on list pages** — surface
-  `CorrectiveActionsService.getOpenCountByInspection` on the inspection
-  list, and `EquipmentChecksService.getActionableCountByEquipment` on
-  the equipment list. Service methods already exist.
+- **Report → corrective-action linkage** — add an optional
+  `incident_report_id` FK on `corrective_actions` (mirror of
+  `inspection_id`), a "Create corrective action" button on the incident
+  detail page with query-param deep-link, and a linked-actions panel on
+  the detail page to close the loop visually.
+- **Failed-check → corrective-action flow** — same cross-module linkage
+  for equipment checks (`equipment_check_id` FK on corrective_actions).
+- **Open-issues badges on list pages** — surface the count service
+  methods that already exist (`getOpenCountByInspection`,
+  `getActionableCountByEquipment`, and the new
+  `OPEN_INCIDENT_STATUSES` set) on their respective list pages.
 - **Admin UI** — web forms for toggling modules and changing user roles
   (replaces the SQL-only workflow).
 - **Invite flow** — admins add teammates by email; the trigger attaches
   them to the existing tenant instead of creating a new one.
 - **Inspection detail view** — read-only page at `/app/inspections/:id`
-  mirroring the equipment detail page pattern.
+  mirroring the equipment + incident detail page pattern.
 - **Role-based UI** — hide controls the current role can't use (delete
   buttons for workers, etc.), backed by the RLS policies already in
   place.
