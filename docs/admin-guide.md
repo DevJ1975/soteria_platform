@@ -200,6 +200,7 @@ Current migrations:
 | `20260416120010_enable_toolbox_talks_module.sql` | Same three-step activation as incidents: flip `is_available`, backfill, extend trigger. |
 | `20260416120011_corrective_actions_cross_module_linkage.sql` | Adds `incident_report_id` and `equipment_check_id` FKs on `corrective_actions`. Replaces the inspection-only cross-tenant trigger with a unified one that validates all three linkage FKs. |
 | `20260416120012_dashboard_summary_views.sql` | Five aggregate views (one per module) powering the dashboard KPI row. Declared with `security_invoker = on` so they inherit the underlying tables' RLS. |
+| `20260416120013_subscription_plans.sql` | Adds `modules.is_core`, creates `subscription_plans` + `subscription_plan_modules`, adds `tenants.plan_id`. Seeds Starter/Growth/Pro plans with module mappings. Existing tenants → Pro; `handle_new_user` updated to assign Starter to new signups and drop hardcoded tenant_modules inserts. |
 
 ---
 

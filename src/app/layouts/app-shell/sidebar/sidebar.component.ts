@@ -1,6 +1,7 @@
-import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 
+import { AuthService } from '@core/services/auth.service';
 import { ModuleRegistryService } from '@core/services/module-registry.service';
 import { IconComponent } from '@shared/components/icon/icon.component';
 
@@ -50,8 +51,22 @@ import { IconComponent } from '@shared/components/icon/icon.component';
         }
       </div>
 
+      @if (isAdmin()) {
+        <div class="sidebar__section">
+          <p class="sidebar__heading">Admin</p>
+          <a
+            class="sidebar__item"
+            routerLink="/app/settings/modules"
+            routerLinkActive="sidebar__item--active"
+          >
+            <sot-icon name="lock" />
+            <span>Modules &amp; Plan</span>
+          </a>
+        </div>
+      }
+
       <div class="sidebar__footer">
-        <p class="sidebar__footer-label">v0.1 · Phase 1</p>
+        <p class="sidebar__footer-label">v0.1 · Phase 10</p>
       </div>
     </nav>
   `,
@@ -158,5 +173,13 @@ import { IconComponent } from '@shared/components/icon/icon.component';
 })
 export class SidebarComponent {
   private readonly registry = inject(ModuleRegistryService);
+  private readonly auth = inject(AuthService);
+
   protected readonly modules = this.registry.modules;
+
+  /** Admin section only shows to tenant admins and platform admins. */
+  protected readonly isAdmin = computed(() => {
+    const role = this.auth.profile()?.role;
+    return role === 'admin' || role === 'platform_admin';
+  });
 }

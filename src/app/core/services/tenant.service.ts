@@ -73,7 +73,7 @@ export class TenantService {
     this._loading.set(true);
     const { data, error } = await this.supabase.client
       .from('tenants')
-      .select('id, name, slug, status, created_at, updated_at')
+      .select('id, name, slug, status, plan_id, created_at, updated_at')
       .eq('id', tenantId)
       .maybeSingle();
     this._loading.set(false);
@@ -94,6 +94,7 @@ function mapTenantRow(row: Record<string, unknown>): Tenant {
     name: row['name'] as string,
     slug: row['slug'] as string,
     status: (row['status'] as Tenant['status']) ?? 'active',
+    planId: (row['plan_id'] as string | null) ?? null,
     createdAt: row['created_at'] as string,
     updatedAt: row['updated_at'] as string,
   };

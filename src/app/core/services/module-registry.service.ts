@@ -1,38 +1,32 @@
 import { computed, effect, inject, Injectable, signal } from '@angular/core';
 
 import { environment } from '@env/environment';
-import { ModuleKey } from '../models';
+import { ModuleKey, TenantModuleAccess } from '../models';
 import { AuthService } from './auth.service';
+import { SubscriptionPlansService } from './subscription-plans.service';
 import { SupabaseService } from './supabase.service';
+import { TenantPlanService } from './tenant-plan.service';
 
 /**
- * Frontend-only metadata for each module. The DB `modules` table is the
- * canonical list of modules that *exist*; this catalogue adds the things
- * a database row can't: the route path and the icon name. Keeping icon
- * + route here (not in the DB) means the platform can ship new frontend
- * chrome without a DB migration for every module.
+ * Frontend-only metadata for each module.
+ *
+ * The DB `modules` table is the canonical list of modules that *exist*;
+ * this catalogue adds icon + route (frontend-only concerns) and mirrors
+ * `sort_order` / `is_available` for convenience. When a new module
+ * ships: add a row here, insert a row into `public.modules`, include it
+ * in the relevant plans via `subscription_plan_modules`, and register
+ * its lazy route in `app.routes.ts`.
  */
 export interface ModuleDefinition {
   key: ModuleKey;
   name: string;
   description: string;
   icon: string;
-  /** Route path this module mounts at, without a leading slash. */
   route: string;
   sortOrder: number;
-  /** Mirror of `modules.is_available`; populated after DB load. */
   isAvailable: boolean;
 }
 
-/**
- * Static frontend metadata for every module Soteria will ever ship. A
- * module appears in the sidebar only if it is:
- *   (a) available on the platform (this list AND `modules.is_available`)
- *   (b) enabled for the current tenant (a row in `tenant_modules`)
- *
- * When adding a new module: add a row here, insert a row into
- * `public.modules`, and register a lazy route in `app.routes.ts`.
- */
 export const MODULE_CATALOGUE: Readonly<Record<ModuleKey, Omit<ModuleDefinition, 'key'>>> = {
   inspections: {
     name: 'Inspections',
@@ -95,30 +89,40 @@ export const MODULE_CATALOGUE: Readonly<Record<ModuleKey, Omit<ModuleDefinition,
 /**
  * Runtime feature-flag service for modules.
  *
- * Responsibilities:
- *   - query `tenant_modules` for the current tenant's enabled modules
- *   - merge the result with the static `MODULE_CATALOGUE` to produce the
- *     list the sidebar renders
- *   - provide fast `isEnabled(key)` lookups for route guards
+ * Access resolution (one truth table, computed from three inputs):
+ *
+ *   effective(module) =
+ *     if module.isCore              → true
+ *     if override(module) exists    → override.isEnabled
+ *     if module in tenant's plan    → true
+ *     else                           → false
+ *
+ * The service holds the resolved set as a signal, re-computed on every
+ * tenant change and whenever the settings page calls `refresh()` after
+ * mutating a plan or override.
  *
  * Dev flag: when `environment.enableAllModulesForLocalDev` is true, we
- * skip the DB query and light up every available module so the UI is
- * fully explorable without any seed data.
+ * skip the DB queries entirely and light up every *available* module so
+ * the UI is fully explorable without any seed data.
  */
 @Injectable({ providedIn: 'root' })
 export class ModuleRegistryService {
   private readonly supabase = inject(SupabaseService);
   private readonly auth = inject(AuthService);
+  private readonly plans = inject(SubscriptionPlansService);
+  private readonly tenantPlan = inject(TenantPlanService);
 
   private readonly _enabledKeys = signal<ReadonlySet<ModuleKey>>(new Set());
+  private readonly _access = signal<ReadonlyMap<ModuleKey, TenantModuleAccess>>(new Map());
   private readonly _loading = signal(false);
 
   readonly enabledKeys = this._enabledKeys.asReadonly();
+  readonly access = this._access.asReadonly();
   readonly loading = this._loading.asReadonly();
 
   /**
-   * The module list the sidebar binds to — available modules the current
-   * tenant has enabled, already sorted for display.
+   * The sidebar-facing list: available + effective-enabled modules,
+   * sorted for display.
    */
   readonly modules = computed<readonly ModuleDefinition[]>(() => {
     const enabled = this._enabledKeys();
@@ -133,9 +137,10 @@ export class ModuleRegistryService {
       const tenantId = this.auth.tenantId();
       if (!tenantId) {
         this._enabledKeys.set(new Set());
+        this._access.set(new Map());
         return;
       }
-      void this.loadEnabledModules(tenantId);
+      void this.resolveAccess(tenantId);
     });
   }
 
@@ -143,35 +148,106 @@ export class ModuleRegistryService {
     return this._enabledKeys().has(key);
   }
 
-  /** Loads `tenant_modules` rows where `is_enabled = true` for the tenant. */
-  private async loadEnabledModules(tenantId: string): Promise<void> {
+  /**
+   * Re-resolve access from the current tenant's plan + overrides.
+   * Call this from the settings page after toggling an override or
+   * changing the plan so the sidebar and guards pick up the change
+   * without requiring a full page reload.
+   */
+  async refresh(): Promise<void> {
+    const tenantId = this.auth.tenantId();
+    if (!tenantId) return;
+    await this.resolveAccess(tenantId);
+  }
+
+  private async resolveAccess(tenantId: string): Promise<void> {
     if (environment.enableAllModulesForLocalDev) {
-      this._enabledKeys.set(
-        new Set(
-          (Object.keys(MODULE_CATALOGUE) as ModuleKey[]).filter(
-            (key) => MODULE_CATALOGUE[key].isAvailable,
-          ),
-        ),
+      const all = (Object.keys(MODULE_CATALOGUE) as ModuleKey[]).filter(
+        (key) => MODULE_CATALOGUE[key].isAvailable,
       );
+      this._enabledKeys.set(new Set(all));
+      this._access.set(buildDevAccessMap(all));
       return;
     }
 
     this._loading.set(true);
-    const { data, error } = await this.supabase.client
-      .from('tenant_modules')
-      .select('module_key')
-      .eq('tenant_id', tenantId)
-      .eq('is_enabled', true);
-    this._loading.set(false);
 
-    if (error) {
+    // Pull everything we need in parallel. Three round-trips, all tiny.
+    const [allModulesResult, planIdResult, overridesResult] = await Promise.all([
+      this.supabase.client.from('modules').select('key, is_core, is_available'),
+      this.tenantPlan.getTenantPlanId(tenantId),
+      this.tenantPlan.getTenantModuleOverrides(tenantId),
+    ]);
+
+    if (allModulesResult.error) {
       // eslint-disable-next-line no-console
-      console.error('[Soteria] Failed to load tenant modules', error);
-      this._enabledKeys.set(new Set());
+      console.error('[Soteria] Failed to load module catalogue', allModulesResult.error);
+      this._loading.set(false);
       return;
     }
 
-    const keys = (data ?? []).map((row) => row.module_key as ModuleKey);
-    this._enabledKeys.set(new Set(keys));
+    const allModules = (allModulesResult.data ?? []) as Array<{
+      key: ModuleKey;
+      is_core: boolean;
+      is_available: boolean;
+    }>;
+
+    const planId = planIdResult;
+    const planModuleKeys = planId
+      ? new Set(await this.plans.getPlanModuleKeys(planId))
+      : new Set<ModuleKey>();
+
+    const overrideMap = new Map<ModuleKey, boolean>();
+    for (const o of overridesResult) {
+      overrideMap.set(o.moduleKey, o.isEnabled);
+    }
+
+    const access = new Map<ModuleKey, TenantModuleAccess>();
+    const enabledSet = new Set<ModuleKey>();
+
+    for (const m of allModules) {
+      if (!m.is_available) continue;
+
+      const planDefault = planModuleKeys.has(m.key);
+      const override = overrideMap.has(m.key)
+        ? { isEnabled: overrideMap.get(m.key)! }
+        : null;
+      const effective = m.is_core
+        ? true
+        : override
+        ? override.isEnabled
+        : planDefault;
+
+      access.set(m.key, {
+        moduleKey: m.key,
+        isCore: m.is_core,
+        planDefault,
+        override,
+        effective,
+      });
+
+      if (effective) enabledSet.add(m.key);
+    }
+
+    this._access.set(access);
+    this._enabledKeys.set(enabledSet);
+    this._loading.set(false);
   }
+}
+
+/** Dev-mode access map: every available module forced on, no overrides. */
+function buildDevAccessMap(
+  keys: readonly ModuleKey[],
+): ReadonlyMap<ModuleKey, TenantModuleAccess> {
+  const map = new Map<ModuleKey, TenantModuleAccess>();
+  for (const key of keys) {
+    map.set(key, {
+      moduleKey: key,
+      isCore: false,
+      planDefault: true,
+      override: null,
+      effective: true,
+    });
+  }
+  return map;
 }

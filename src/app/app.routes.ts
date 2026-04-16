@@ -77,6 +77,13 @@ export const APP_ROUTES: Routes = [
             (m) => m.TRAINING_ROUTES,
           ),
       },
+      {
+        path: 'settings',
+        loadChildren: () =>
+          import('./features/settings/settings.routes').then(
+            (m) => m.SETTINGS_ROUTES,
+          ),
+      },
     ],
   },
   { path: '**', redirectTo: 'app' },

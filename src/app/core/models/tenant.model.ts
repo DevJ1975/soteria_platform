@@ -9,6 +9,9 @@ export interface Tenant {
   /** URL-safe identifier, unique across the platform. */
   slug: string;
   status: TenantStatus;
+  /** FK to `subscription_plans`. Nullable to support tenants between
+   *  plans; see `SubscriptionPlan` + `TenantPlanService` for resolution. */
+  planId: string | null;
   createdAt: string;
   updatedAt: string;
 }

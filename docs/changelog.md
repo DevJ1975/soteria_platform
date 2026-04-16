@@ -8,6 +8,84 @@ What's shipped, in reverse chronological order.
 
 ---
 
+## 2026-04-16 — Phase 10: Module toggles + tenant plan management
+
+Not committed yet at time of writing.
+
+Turns the modules system into a proper SaaS control surface: plans
+determine default module access, per-tenant overrides force a module
+on or off regardless of plan, and an admin-only settings page gives
+tenant owners direct control.
+
+### Architecture
+
+The spec asked for a new `platform_modules` table. We already had
+`modules` serving that role — same shape, same purpose. Kept
+`modules` as the platform catalogue; added `is_core` for always-on
+modules. Reinterpreted `tenant_modules` as the overrides table.
+New: `subscription_plans`, `subscription_plan_modules`,
+`tenants.plan_id`.
+
+### Access resolution (three-layer rule)
+
+Implemented in `ModuleRegistryService.resolveAccess()`:
+
+  1. `modules.is_core = true`       → always enabled
+  2. override exists                → use override's is_enabled
+  3. module is in tenant's plan     → enabled
+  4. otherwise                      → disabled
+
+One resolve call = three parallel queries (modules · plan_id ·
+overrides). The resolved enabled-set is a signal; sidebar and module
+guard react automatically. Settings-page mutations call
+`ModuleRegistryService.refresh()` to re-resolve without a reload.
+
+### Schema — migration 20260416120013
+
+- `modules.is_core` column added.
+- `subscription_plans` + 3 seeded plans (Starter · Growth · Pro).
+- `subscription_plan_modules` + seeded mappings:
+  - Starter: inspections + corrective_actions
+  - Growth: Starter + equipment_checks + incidents
+  - Pro: Growth + toolbox_talks
+- `tenants.plan_id` (nullable FK). Existing tenants → Pro
+  (preserves current behaviour). `handle_new_user` updated to
+  assign Starter to new signups and drop hardcoded `tenant_modules`
+  inserts.
+- RLS on new tables: authenticated read; no write policies (plans
+  are platform catalog, changed via migration).
+
+### Angular
+
+- Models: `SubscriptionPlan`, `SubscriptionPlanModule`,
+  `TenantModuleOverride`, `TenantModuleAccess`, `TenantPlanSummary`.
+  `Tenant` gains `planId`.
+- `SubscriptionPlansService` — read-only plan catalog.
+- `TenantPlanService` — `getTenantPlanId`,
+  `updateTenantPlan(id, planId | null)`, `getTenantModuleOverrides`,
+  `setTenantModuleOverride(key, null | true | false)` where `null`
+  removes the override.
+- `ModuleRegistryService` refactored: new resolver + public
+  `refresh()` + `access` signal exposed as `ReadonlyMap<ModuleKey,
+  TenantModuleAccess>` for the settings table.
+- New `roleGuard(...roles)` — higher-order guard; `platform_admin`
+  implicitly allowed on every role gate.
+- New `/app/settings/modules` admin-only page with plan selector +
+  module access table (plan default / override control / effective).
+- Sidebar gets an **Admin** section with a Modules & Plan link,
+  rendered only for `admin` / `platform_admin` roles.
+
+### Not changing
+
+- **Dashboard not in `modules`.** Dashboard is the landing page, not
+  a toggleable feature. It lives outside the catalog.
+- **Plan tier validation on overrides.** Nothing stops a Starter
+  admin from force-enabling all modules via override. When billing
+  ships, override writes will check plan tier limits; today it's
+  trusted because there's no cost differential.
+
+---
+
 ## 2026-04-16 — Phase 9 review 2: Dashboard state correctness
 
 Not committed yet at time of writing.
