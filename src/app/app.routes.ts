@@ -2,7 +2,9 @@ import { Routes } from '@angular/router';
 
 import { authGuard } from '@core/guards/auth.guard';
 import { moduleGuard } from '@core/guards/module.guard';
+import { platformAdminGuard } from '@core/guards/platform-admin.guard';
 import { AppShellComponent } from '@layouts/app-shell/app-shell.component';
+import { PlatformAdminShellComponent } from '@layouts/platform-admin-shell/platform-admin-shell.component';
 
 /**
  * Top-level route table.
@@ -23,6 +25,15 @@ export const APP_ROUTES: Routes = [
     path: 'auth',
     loadChildren: () =>
       import('./features/auth/auth.routes').then((m) => m.AUTH_ROUTES),
+  },
+  {
+    path: 'platform-admin',
+    component: PlatformAdminShellComponent,
+    canActivate: [authGuard, platformAdminGuard],
+    loadChildren: () =>
+      import('./features/platform-admin/platform-admin.routes').then(
+        (m) => m.PLATFORM_ADMIN_ROUTES,
+      ),
   },
   {
     path: 'app',

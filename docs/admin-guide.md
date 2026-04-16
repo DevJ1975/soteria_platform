@@ -21,6 +21,7 @@ For tenant admins and the people running the Soteria platform.
 - [Architecture at a glance](#architecture-at-a-glance)
 - [Tenant provisioning](#tenant-provisioning)
 - [User roles](#user-roles)
+- [Platform admin area](#platform-admin-area)
 - [Modules and toggling](#modules-and-toggling)
 - [Database](#database)
 - [Local dev setup](#local-dev-setup)
@@ -102,6 +103,61 @@ button.
 Changing someone's role is an SQL update against `user_profiles.role`
 (e.g., from `worker` → `supervisor`). An admin UI for this is on the
 roadmap.
+
+---
+
+## Platform admin area
+
+A separate operator UI lives at **`/platform-admin/*`**. It's gated by
+`authGuard + platformAdminGuard` and only visible to users whose
+`role = 'platform_admin'`. Everyone else (any value of `admin`,
+`supervisor`, or `worker`) is redirected back to `/app/dashboard`.
+
+The area has its own shell (`PlatformAdminShellComponent`) with amber
+accents — a visible signal that you've crossed into operator tools.
+A "Platform Admin" quick-link appears in the normal app topbar for
+anyone with the role so they can jump between tenant and operator
+contexts without typing the URL.
+
+### Bootstrapping the first platform admin
+
+Platform admins are **not** created automatically — the app has no
+"register as super-admin" flow on purpose. To promote a signed-up
+user, run once against the DB:
+
+```sql
+update public.user_profiles
+set    role = 'platform_admin'
+where  email = 'you@example.com';
+```
+
+After the UPDATE, sign the user out and back in so the client picks up
+the new role. They keep their home tenant (the `tenant_id` column stays
+NOT NULL and points at their original signup tenant) and can still use
+the tenant-facing app exactly as before — the new role just *adds*
+cross-tenant visibility via RLS.
+
+### What a platform admin can do
+
+| Area | Page | Capability |
+| --- | --- | --- |
+| Dashboard | `/platform-admin/dashboard` | Counts of tenants, plans, modules; recent tenants |
+| Tenants | `/platform-admin/tenants` | List, create, edit (name, slug, status, plan) |
+| Plans | `/platform-admin/plans` | List, create, edit name/description/sort, toggle active, manage module membership |
+| Modules | `/platform-admin/modules` | Toggle platform-level `is_available` on non-core modules |
+
+### Why RLS policies are additive
+
+Migration `120014_platform_admin_access.sql` adds a second layer of
+RLS policies that bypass tenant scoping for `platform_admin`. Postgres
+combines multiple policies on the same (table, command) pair with
+**OR** — so tenant members keep their own-tenant access, and platform
+admins additionally see every row. Nothing about tenant RLS changes;
+the platform-admin windows are purely additive.
+
+Non-platform-admins hitting the admin services get empty selects and
+refused writes at the DB level. The route guard is belt-and-suspenders
+for a good UX; the DB is the real enforcement boundary.
 
 ---
 

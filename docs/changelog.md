@@ -8,6 +8,84 @@ What's shipped, in reverse chronological order.
 
 ---
 
+## 2026-04-16 — Phase 11: Platform admin area
+
+Separate operator UI at `/platform-admin/*` for internal staff to
+manage tenants, plans, and modules across the whole platform. Gated
+on `role = 'platform_admin'` via a new `platformAdminGuard` at the
+route level and additive RLS policies at the database level.
+
+### Database
+
+- **Migration `20260416120014_platform_admin_access.sql`.** Adds
+  platform-admin RLS policies on `tenants`, `user_profiles`, `modules`,
+  `subscription_plans`, `subscription_plan_modules`, and
+  `tenant_modules`. Every new policy is additive (Postgres combines
+  with OR), so tenant-member access is unchanged — platform admins
+  just gain cross-tenant visibility and writes on top.
+- **No new tables or columns.** The existing
+  `user_profiles.role = 'platform_admin'` enum value is the single
+  source of truth; no separate `is_platform_admin` boolean needed.
+
+### Bootstrap
+
+First platform admin is promoted manually via SQL:
+
+```sql
+update public.user_profiles
+set role = 'platform_admin'
+where email = 'you@example.com';
+```
+
+Full instructions in the admin guide.
+
+### Frontend
+
+- **`PlatformAdminShellComponent`** — second shell separate from
+  `AppShellComponent`. Amber accents + "Platform Admin" badge so it's
+  visually obvious when an operator has crossed into cross-tenant
+  territory. "← Back to app" drops them back to `/app/dashboard`.
+- **Pages:**
+  - `/platform-admin/dashboard` — tenant / plan / module counts and
+    recent tenants.
+  - `/platform-admin/tenants` — cross-tenant list with status & plan
+    chips.
+  - `/platform-admin/tenants/new` and `/:id/edit` — reactive forms
+    with slug validation + friendly unique-violation handling.
+  - `/platform-admin/plans` — list with inline edit of metadata and
+    per-plan module membership via checkboxes; draft-card create flow.
+  - `/platform-admin/modules` — toggle `is_available` on non-core
+    modules.
+- **`platformAdminGuard`** — checks `auth.profile()?.role` after
+  `whenInitialized()`; redirects to `/app/dashboard` otherwise.
+- **Topbar quick-link.** The tenant-facing topbar shows a "Platform
+  Admin" button to operators only (role-gated `computed`), so they
+  can swap contexts without typing the URL.
+- **Separate services.** `PlatformAdminTenantsService`,
+  `PlatformAdminPlansService`, `PlatformAdminModulesService`
+  deliberately skip `.eq('tenant_id', …)` — they rely on the new RLS
+  windows rather than client-side tenant scoping. Tenant-facing
+  services keep their explicit filters.
+
+### Design decisions
+
+- **`/platform-admin` at top-level, not nested under `/app`.** The
+  operator area has its own shell, its own concerns, and shouldn't
+  inherit `moduleGuard` or tenant-scoped route state from the app
+  shell.
+- **Platform admins keep a home tenant.** `user_profiles.tenant_id`
+  stays NOT NULL. They use the tenant app like anyone else, and the
+  `platform_admin` role is additive.
+- **Plans: one list page with inline edit.** Considered a
+  plan-new / plan-edit split to match tenants, but plan mutations are
+  low-volume and the surface is small enough that the thrash of an
+  extra route wasn't worth it.
+- **Modules: no "create" UI.** A new module needs frontend code
+  (route, catalogue entry, lazy loader) to do anything useful, so the
+  create flow stays in migrations + `MODULE_CATALOGUE`.
+
+---
+
 ## 2026-04-16 — Phase 10 review: resolver correctness + settings UX
 
 Not committed yet at time of writing.

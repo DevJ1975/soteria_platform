@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { RouterLink } from '@angular/router';
 
 import { AuthService } from '@core/services/auth.service';
 import { TenantService } from '@core/services/tenant.service';
@@ -11,7 +12,7 @@ import { IconComponent } from '@shared/components/icon/icon.component';
 @Component({
   selector: 'sot-topbar',
   standalone: true,
-  imports: [IconComponent],
+  imports: [RouterLink, IconComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <header class="topbar">
@@ -23,6 +24,16 @@ import { IconComponent } from '@shared/components/icon/icon.component';
       </div>
 
       <div class="topbar__right">
+        @if (isPlatformAdmin()) {
+          <a
+            class="sot-btn sot-btn--ghost topbar__admin"
+            routerLink="/platform-admin/dashboard"
+            title="Go to the platform admin area"
+          >
+            <sot-icon name="wrench" [size]="16" />
+            <span>Platform Admin</span>
+          </a>
+        }
         <div class="user" role="group" aria-label="Current user">
           <div class="user__avatar" aria-hidden="true">{{ initials() }}</div>
           <div class="user__text">
@@ -125,6 +136,18 @@ import { IconComponent } from '@shared/components/icon/icon.component';
       .topbar__signout {
         height: 36px;
       }
+
+      .topbar__admin {
+        height: 36px;
+        color: #92400e;
+        background: #fef3c7;
+        border: 1px solid #fcd34d;
+        font-weight: 600;
+      }
+      .topbar__admin:hover {
+        background: #fde68a;
+        color: #78350f;
+      }
     `,
   ],
 })
@@ -139,6 +162,10 @@ export class TopbarComponent {
   );
 
   protected readonly userRole = computed(() => this.auth.profile()?.role ?? '');
+
+  protected readonly isPlatformAdmin = computed(
+    () => this.auth.profile()?.role === 'platform_admin',
+  );
 
   protected readonly initials = computed(() => {
     const profile = this.auth.profile();
