@@ -48,3 +48,8 @@ src/environments/environment.local.ts
 supabase/.branches
 supabase/.temp
 supabase/functions/**/deno.lock
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
