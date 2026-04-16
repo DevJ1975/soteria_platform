@@ -10,6 +10,7 @@ import {
 import { RouterLink } from '@angular/router';
 
 import { TenantMemberLookupService } from '@core/services/tenant-member-lookup.service';
+import { CorrectiveActionsPanelComponent } from '@features/corrective-actions/components/corrective-actions-panel/corrective-actions-panel.component';
 import { PageHeaderComponent } from '@shared/components/page-header/page-header.component';
 import { formatDateTime } from '@shared/utils/date.util';
 import { extractErrorMessage } from '@shared/utils/errors.util';
@@ -39,6 +40,7 @@ import { IncidentReportsService } from '../../services/incident-reports.service'
     PageHeaderComponent,
     IncidentReportSeverityChipComponent,
     IncidentReportStatusChipComponent,
+    CorrectiveActionsPanelComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -59,7 +61,8 @@ import { IncidentReportsService } from '../../services/incident-reports.service'
       <div class="sot-state">Loading report…</div>
     } @else if (!report()) {
       <div class="sot-state">Report not found.</div>
-    } @else if (report(); as r) {
+    } @else {
+      @let r = report()!;
       <section class="meta sot-card">
         <div class="meta__chips">
           <sot-incident-report-severity-chip [severity]="r.severity" />
@@ -123,6 +126,8 @@ import { IncidentReportsService } from '../../services/incident-reports.service'
           </section>
         }
       </article>
+
+      <sot-corrective-actions-panel [incidentReportId]="r.id" />
     }
   `,
   styles: [

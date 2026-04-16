@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   effect,
   inject,
   input,
@@ -11,8 +12,11 @@ import {
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 
 import { TenantMemberLookupService } from '@core/services/tenant-member-lookup.service';
+import { IncidentReport } from '@features/incident-reports/models/incident-report.model';
+import { IncidentReportsService } from '@features/incident-reports/services/incident-reports.service';
 import { Inspection } from '@features/inspections/models/inspection.model';
 import { InspectionsService } from '@features/inspections/services/inspections.service';
+import { formatDateTime } from '@shared/utils/date.util';
 
 import {
   CORRECTIVE_ACTION_PRIORITY_LABEL,
@@ -29,14 +33,25 @@ const DESCRIPTION_MAX = 2000;
 /**
  * Reusable reactive form shared by create and edit pages.
  *
- * Two ways to pre-fill linkage to an inspection:
- *   1. Pass a full `initialValue` (edit mode) — any fields are hydrated.
- *   2. Pass `initialInspectionId` (new-from-inspection-context mode) — the
- *      dropdown starts pre-selected. Takes precedence only when there's
- *      no `initialValue` to hydrate from.
+ * Cross-module linkage
+ * --------------------
+ * A corrective action can optionally be linked to a source that produced
+ * it — one of three at most:
+ *   - an inspection finding
+ *   - an incident report
+ *   - an equipment check (failed or needs-attention)
  *
- * The form is deliberately dumb. It emits `submitted` with a typed payload
- * and the host is responsible for calling the service and navigating.
+ * Two ways to pre-fill linkage:
+ *   1. Pass a full `initialValue` (edit mode) — all three link fields
+ *      hydrate from the entity.
+ *   2. Pass `initialInspectionId` / `initialIncidentReportId` /
+ *      `initialEquipmentCheckId` (new-from-context mode) — the matching
+ *      control starts pre-selected. Used by the "Add corrective action"
+ *      deep-links from each detail panel.
+ *
+ * The inspection and incident pickers are dropdowns. The equipment-check
+ * linkage is view-only in this form — users who need to rewire one do
+ * so by deleting and recreating (context linkage is rare to change).
  */
 @Component({
   selector: 'sot-corrective-action-form',
@@ -115,21 +130,41 @@ const DESCRIPTION_MAX = 2000;
 
         <div class="form__field form__field--span-2">
           <label class="sot-label" for="inspectionId">Linked inspection</label>
-          <select
-            id="inspectionId"
-            class="sot-input"
-            formControlName="inspectionId"
-          >
+          <select id="inspectionId" class="sot-input" formControlName="inspectionId">
             <option [ngValue]="null">— Not linked —</option>
             @for (i of inspections(); track i.id) {
               <option [ngValue]="i.id">{{ i.title }}</option>
             }
           </select>
-          <p class="form__hint">
-            Link this action to an inspection when it addresses a finding from
-            that inspection. Leave unlinked for ad-hoc hazards or audit items.
-          </p>
         </div>
+
+        <div class="form__field form__field--span-2">
+          <label class="sot-label" for="incidentReportId">Linked incident report</label>
+          <select id="incidentReportId" class="sot-input" formControlName="incidentReportId">
+            <option [ngValue]="null">— Not linked —</option>
+            @for (r of incidentReports(); track r.id) {
+              <option [ngValue]="r.id">{{ r.title }}</option>
+            }
+          </select>
+        </div>
+
+        @if (form.controls.equipmentCheckId.value) {
+          <div class="form__field form__field--span-2 linked-check">
+            <span class="linked-check__label">Linked equipment check</span>
+            <span class="linked-check__value">
+              @if (linkedEquipmentCheckSummary()) {
+                {{ linkedEquipmentCheckSummary() }}
+              } @else {
+                Linked to an equipment check
+              }
+            </span>
+            <p class="form__hint">
+              Check linkage is set when you create an action from a
+              failed check. To change it, delete this action and create
+              a new one from the right check.
+            </p>
+          </div>
+        }
 
         <div class="form__field form__field--span-2">
           <label class="sot-label" for="description">Description / notes</label>
@@ -150,11 +185,7 @@ const DESCRIPTION_MAX = 2000;
       </div>
 
       <div class="form__actions">
-        <button
-          type="button"
-          class="sot-btn sot-btn--ghost"
-          (click)="cancelled.emit()"
-        >
+        <button type="button" class="sot-btn sot-btn--ghost" (click)="cancelled.emit()">
           Cancel
         </button>
         <button
@@ -208,6 +239,25 @@ const DESCRIPTION_MAX = 2000;
         margin-top: 4px;
       }
 
+      .linked-check {
+        background: var(--color-primary-soft);
+        border: 1px solid #bfdbfe;
+        border-radius: var(--radius-md);
+        padding: var(--space-3);
+      }
+      .linked-check__label {
+        font-size: 11px;
+        color: var(--color-primary-hover);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-weight: 600;
+      }
+      .linked-check__value {
+        font-weight: 500;
+        color: var(--color-text);
+        margin-top: 2px;
+      }
+
       .form__actions {
         display: flex;
         justify-content: flex-end;
@@ -228,9 +278,12 @@ export class CorrectiveActionFormComponent implements OnInit {
   private readonly fb = inject(FormBuilder);
   protected readonly lookup = inject(TenantMemberLookupService);
   private readonly inspectionsService = inject(InspectionsService);
+  private readonly incidentsService = inject(IncidentReportsService);
 
   readonly initialValue = input<CorrectiveAction | null>(null);
   readonly initialInspectionId = input<string | null>(null);
+  readonly initialIncidentReportId = input<string | null>(null);
+  readonly initialEquipmentCheckId = input<string | null>(null);
   readonly submitLabel = input<string>('Save');
   readonly submitting = input<boolean>(false);
 
@@ -238,6 +291,7 @@ export class CorrectiveActionFormComponent implements OnInit {
   readonly cancelled = output<void>();
 
   protected readonly inspections = signal<Array<Pick<Inspection, 'id' | 'title'>>>([]);
+  protected readonly incidentReports = signal<Array<Pick<IncidentReport, 'id' | 'title'>>>([]);
 
   protected readonly titleMax = TITLE_MAX;
   protected readonly descriptionMax = DESCRIPTION_MAX;
@@ -261,15 +315,21 @@ export class CorrectiveActionFormComponent implements OnInit {
     priority: this.fb.nonNullable.control<CorrectiveActionPriority>('medium'),
     status: this.fb.nonNullable.control<CorrectiveActionStatus>('open'),
     inspectionId: this.fb.control<string | null>(null),
+    incidentReportId: this.fb.control<string | null>(null),
+    equipmentCheckId: this.fb.control<string | null>(null),
     assignedTo: this.fb.control<string | null>(null),
     dueDate: this.fb.control<string | null>(null),
   });
 
-  // Guards against re-hydrating the form on every `initialValue` signal
-  // change. Without it, the effect would fire after a successful save
-  // (when the page re-sets `inspection` to the server's echo) and wipe
-  // any edits the user has started since. We patch only when the
-  // incoming entity's id differs from what we last patched.
+  /** Pretty summary of the linked equipment check, when the edit entity
+   *  came with one embedded. */
+  protected readonly linkedEquipmentCheckSummary = computed(() => {
+    const embedded = this.initialValue()?.linkedEquipmentCheck;
+    if (!embedded) return null;
+    return `${embedded.checkType.replace(/_/g, ' ')} · ${formatDateTime(embedded.performedAt)}`;
+  });
+
+  // Re-hydration guard — see InspectionFormComponent for rationale.
   private readonly lastPatchedId = signal<string | null>(null);
 
   constructor() {
@@ -283,28 +343,42 @@ export class CorrectiveActionFormComponent implements OnInit {
           priority: initial.priority,
           status: initial.status,
           inspectionId: initial.inspectionId,
+          incidentReportId: initial.incidentReportId,
+          equipmentCheckId: initial.equipmentCheckId,
           assignedTo: initial.assignedTo,
           dueDate: initial.dueDate,
         });
         this.lastPatchedId.set(initial.id);
         return;
       }
-      // No full initialValue yet — seed the inspection dropdown from the
-      // "from inspection context" preset, but only once.
-      const preset = this.initialInspectionId();
-      if (preset && this.form.controls.inspectionId.pristine) {
-        this.form.patchValue({ inspectionId: preset });
+
+      // New-from-context presets. At most one of the three should be
+      // provided in practice; if multiple are, they all get set and the
+      // user sees all three dropdowns filled — unusual but not broken.
+      const inspPreset = this.initialInspectionId();
+      if (inspPreset && this.form.controls.inspectionId.pristine) {
+        this.form.patchValue({ inspectionId: inspPreset });
+      }
+      const incidentPreset = this.initialIncidentReportId();
+      if (incidentPreset && this.form.controls.incidentReportId.pristine) {
+        this.form.patchValue({ incidentReportId: incidentPreset });
+      }
+      const checkPreset = this.initialEquipmentCheckId();
+      if (checkPreset && this.form.controls.equipmentCheckId.pristine) {
+        this.form.patchValue({ equipmentCheckId: checkPreset });
       }
     });
   }
 
   async ngOnInit(): Promise<void> {
-    // Roster comes from the shared lookup service — cached and reactive,
-    // so templates bind to lookup.members(). Inspections are still loaded
-    // here because they're a per-form concern.
     void this.lookup.ensureLoaded();
-    const rows: Inspection[] = await this.inspectionsService.getInspections();
-    this.inspections.set(rows.map((r: Inspection) => ({ id: r.id, title: r.title })));
+    // Load inspections and incidents in parallel for the dropdowns.
+    const [inspections, incidents] = await Promise.all([
+      this.inspectionsService.getInspections(),
+      this.incidentsService.getIncidentReports(),
+    ]);
+    this.inspections.set(inspections.map((r) => ({ id: r.id, title: r.title })));
+    this.incidentReports.set(incidents.map((r) => ({ id: r.id, title: r.title })));
   }
 
   protected showError(name: keyof typeof this.form.controls): boolean {
@@ -324,6 +398,8 @@ export class CorrectiveActionFormComponent implements OnInit {
       priority: value.priority,
       status: value.status,
       inspectionId: value.inspectionId,
+      incidentReportId: value.incidentReportId,
+      equipmentCheckId: value.equipmentCheckId,
       assignedTo: value.assignedTo,
       dueDate: value.dueDate || null,
     });

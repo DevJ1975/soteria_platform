@@ -31,6 +31,8 @@ export interface CorrectiveAction {
   id: string;
   tenantId: string;
   inspectionId: string | null;
+  incidentReportId: string | null;
+  equipmentCheckId: string | null;
   title: string;
   description: string;
   status: CorrectiveActionStatus;
@@ -43,11 +45,18 @@ export interface CorrectiveAction {
   updatedAt: string;
 
   /**
-   * Populated only by queries that join the inspections table (list page,
-   * panel). `undefined` means the field wasn't requested; `null` means it
-   * was requested but the action isn't linked to an inspection.
+   * Populated only by queries that embed the linked records (list page,
+   * panels). `undefined` means not requested; `null` means requested but
+   * the action isn't linked to that entity.
    */
   linkedInspection?: { id: string; title: string } | null;
+  linkedIncidentReport?: { id: string; title: string } | null;
+  linkedEquipmentCheck?: {
+    id: string;
+    equipmentId: string;
+    checkType: string;
+    performedAt: string;
+  } | null;
 }
 
 /** Fields the client may send on create. */
@@ -57,6 +66,8 @@ export interface CreateCorrectiveActionPayload {
   priority: CorrectiveActionPriority;
   status?: CorrectiveActionStatus;
   inspectionId?: string | null;
+  incidentReportId?: string | null;
+  equipmentCheckId?: string | null;
   assignedTo?: string | null;
   dueDate?: string | null;
 }
@@ -68,6 +79,8 @@ export interface UpdateCorrectiveActionPayload {
   status?: CorrectiveActionStatus;
   priority?: CorrectiveActionPriority;
   inspectionId?: string | null;
+  incidentReportId?: string | null;
+  equipmentCheckId?: string | null;
   assignedTo?: string | null;
   dueDate?: string | null;
   completedAt?: string | null;

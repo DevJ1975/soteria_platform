@@ -16,6 +16,7 @@ Welcome to Soteria, the mobile-first safety operations platform for high-risk in
 - [Corrective actions](#corrective-actions)
 - [Equipment](#equipment)
 - [Incident reports](#incident-reports)
+- [Toolbox talks](#toolbox-talks)
 - [Your role](#your-role)
 - [What's next](#whats-next)
 
@@ -358,6 +359,55 @@ The list page supports:
 
 ---
 
+## Toolbox talks
+
+The Toolbox Talks module at `/app/training` is where you record
+training sessions, safety briefings, and their attendance.
+
+### Schedule a session
+
+From the list page click **New session**. Required fields: title,
+topic, and session date/time. Optional: conductor (pick a teammate),
+location, and description/notes.
+
+### Recording attendance
+
+Click a session's title to open the detail page. The attendance
+panel supports two kinds of attendees:
+
+- **Members** — teammates in your organization. Type a few letters of
+  their name and pick from the dropdown; press Enter to add. The
+  attendee's user record is linked so their training history is
+  tracked per-person.
+- **External attendees** — visitors, contractors, or new hires not
+  yet in the system. Type the name and press Enter; the record is
+  stored under just the name.
+
+The **Signed** checkbox defaults to checked so you can fly through a
+room quickly. Uncheck it if you want to record someone as present
+but not yet signed. Toggling it later stamps (or clears) a signed-at
+timestamp automatically.
+
+Duplicates are prevented — you can't accidentally add the same member
+twice.
+
+### Filtering and searching
+
+The list page supports:
+
+- **Search** — matches title or topic.
+- **Conducted by** — everyone, me, or a specific teammate.
+- **Date range** — show me last month's talks.
+
+### Who can do what
+
+- **Workers** can view sessions and their own attendance history but
+  can't schedule or record.
+- **Supervisors and admins** can schedule sessions, record attendance,
+  and edit. Only admins can delete — deleting cascades attendance.
+
+---
+
 ## Your role
 
 Soteria distinguishes four roles:
@@ -382,7 +432,6 @@ disappearing.
 
 These are on the roadmap but not yet in the product:
 
-- Toolbox talks / training
 - Heat compliance
 - LOTO (lockout / tagout)
 

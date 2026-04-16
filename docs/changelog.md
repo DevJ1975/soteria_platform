@@ -8,6 +8,170 @@ What's shipped, in reverse chronological order.
 
 ---
 
+## 2026-04-16 — Phase 8: Cross-module corrective-action linkage
+
+Not committed yet at time of writing.
+
+The long-promised cross-module story: any finding — from an inspection,
+an incident report, or an equipment check — can now spawn a tracked
+corrective action with one click, and every source context shows its
+follow-ups inline.
+
+### Schema
+
+- SQL migration [`20260416120011_corrective_actions_cross_module_linkage.sql`](../supabase/migrations/20260416120011_corrective_actions_cross_module_linkage.sql):
+  - Adds `incident_report_id` and `equipment_check_id` nullable FKs on
+    `corrective_actions`, both with `on delete set null` so the
+    remediation record survives deletion of its source.
+  - Partial indexes on both new columns (where not null) to keep the
+    panel queries cheap.
+  - Replaces the existing inspection-only cross-tenant trigger with a
+    unified `check_corrective_action_cross_tenant_linkage` function
+    that validates all three FKs in one pass. Old function dropped.
+
+### Service
+
+- Three parallel read methods via a small `findByLink(column, id)`
+  helper: `getCorrectiveActionsByInspection/IncidentReport/EquipmentCheck`.
+- Three parallel count methods: `getOpenCountBy…` for each source.
+- Embedded-select string now pulls all three linked records in a single
+  round-trip. The DB trigger guarantees at most one is populated; the
+  mapper handles any shape.
+- Create and update accept `incidentReportId` and `equipmentCheckId` in
+  payloads (sparse PATCH preserved).
+
+### UI
+
+- `CorrectiveActionsPanelComponent` refactored to accept any one of
+  `[inspectionId]`, `[incidentReportId]`, `[equipmentCheckId]`. Computes
+  the right service method, subtitle, empty message, and deep-link
+  query param from whichever is set. Inspection edit page usage
+  unchanged.
+- Dropped the panel into the **incident report detail page** so follow-up
+  actions live alongside the narrative cards.
+- Added an inline **"Create corrective action →"** link on every failed
+  or needs-attention row in the `EquipmentChecksPanel`. Deep-links to
+  `/app/corrective-actions/new?equipmentCheckId=…`.
+- `CorrectiveActionFormComponent`:
+  - Two new inputs (`initialIncidentReportId`, `initialEquipmentCheckId`)
+    matching the existing inspection preset pattern.
+  - New "Linked incident report" dropdown sourced from
+    `IncidentReportsService.getIncidentReports()`.
+  - Equipment-check linkage renders as a read-only info card when set
+    (set via query param only; not manually picked from a dropdown of
+    potentially thousands of checks).
+  - Hydration effect now covers all three link fields; the
+    `lastPatchedId` guard still prevents re-hydration wipe.
+- `CorrectiveActionNewComponent`:
+  - Reads three query params (`inspectionId`, `incidentReportId`,
+    `equipmentCheckId`), passes each as a preset to the form.
+  - After save, returns the user to whichever context they came from
+    (inspection edit / incident detail / CA list for equipment checks,
+    since those don't have a dedicated detail page).
+
+### End-to-end flow
+
+```
+  Failed equipment check          Incident finding
+          │                              │
+          │ click "Create corrective     │ click "Add corrective
+          │ action →" on the row         │ action" on detail panel
+          ▼                              ▼
+  /app/corrective-actions/new?equipmentCheckId=…   /?incidentReportId=…
+          │                              │
+          │  form pre-linked, user       │
+          │  fills title/priority        │
+          ▼                              ▼
+             createCorrectiveAction(payload)
+             ├── incident_report_id or equipment_check_id set
+             ├── cross-tenant trigger validates the linkage
+             └── RLS enforces tenant isolation
+                            │
+                            ▼
+          return to source context; new action appears in its panel
+```
+
+---
+
+## 2026-04-16 — Phase 7 review: Training polish
+
+Not committed yet at time of writing.
+
+### Attendance panel correctness
+
+- **Toggle-signed error path fixed.** The checkbox binding
+  (`[checked]="a.signed"`) is one-way — when `updateAttendance` failed,
+  the user's click had already flipped the DOM state but our signal
+  hadn't changed, so the UI showed "checked" while the data was
+  `false`. Explicit `checkbox.checked = a.signed` on error forces the
+  visual back to the saved value.
+- **Stale errors now clear** at the start of `toggleSigned` and
+  `remove`, same as `addAttendee`. A failed action followed by a
+  successful one no longer leaves the old error hanging.
+
+### UX
+
+- **Signed count in the attendance panel header.** "Attendees · 12 · 11
+  signed" is the metric supervisors actually want — simple attendee
+  count doesn't tell them whether sign-off is complete. Computed
+  client-side from the loaded rows; no extra query.
+
+### Form
+
+- **Granular topic error message.** Title field had `required` /
+  `minlength` / `maxlength` specific errors; topic just silently
+  refused submit. Now shows "A topic is required" / "Topic is too long
+  …" in the same shape as title.
+
+### Known limitations (not changing this pass)
+
+- **Duplicate member names on the datalist.** If two tenant members
+  share a first + last name, the resolver picks the first match.
+  Rare-to-hypothetical edge; cleanest fix is appending email to the
+  datalist option, but that visibly doubles line length in the picker.
+  Leaving until it surfaces as a real complaint.
+- **List-page boilerplate duplication across 5 modules** is genuinely
+  repetitive but extracting a generic `<sot-data-table>` is a
+  cross-module refactor that deserves its own pass; not scoped to this
+  review.
+
+---
+
+## 2026-04-16 — Phase 7: Toolbox Talks / Training Records
+
+Not committed yet at time of writing.
+
+### Schema
+
+- SQL migration [`20260416120009_training.sql`](../supabase/migrations/20260416120009_training.sql):
+  - `training_sessions` — one row per toolbox talk. Indexed on `(tenant_id, session_date desc)` for the calendar query; FK to `user_profiles(conducted_by)` with `on delete set null` so historical attribution survives supervisor departures.
+  - `training_attendance` — one row per attendee. Denormalized `tenant_id` alongside `session_id`, enforced by a cross-tenant alignment trigger (same pattern as equipment_checks and corrective_actions). `attendee_id` FK is nullable so external attendees (visitors, new hires) can be recorded by name.
+  - No session-level status column — scheduled/completed is derivable from `session_date < now()`; storing it would invite drift.
+  - RLS: sessions are read-tenant / write-staff / delete-admin; attendance is read-tenant / write-staff.
+- SQL migration [`20260416120010_enable_toolbox_talks_module.sql`](../supabase/migrations/20260416120010_enable_toolbox_talks_module.sql):
+  - Flips `modules.is_available = true` for key `toolbox_talks`.
+  - Backfills `tenant_modules` for every existing tenant (idempotent).
+  - Replaces `handle_new_user` to include `toolbox_talks` in the default-enabled set for new signups.
+
+### Angular
+
+- Models and services split by concern: `TrainingSession` + `TrainingSessionsService` for the sessions CRUD, `TrainingAttendance` + `TrainingAttendanceService` for the per-attendee work. Attendance service has `signed_at` derived from `signed` transitions (same pattern as closed_at on incidents, completed_at on inspections).
+- `TrainingSessionFormComponent` — two-section reactive form (session details + description/location). Reuses the shared `localNow` / `toDatetimeLocal` date helpers and the shared `TenantMemberLookupService` for the conductor dropdown.
+- `TrainingAttendancePanelComponent` — the centerpiece of the module. Single input with a datalist sourced from the tenant roster; type/pick/Enter/repeat. Matches typed names against members (case-insensitive full-name); sets `attendee_id` when it matches, leaves it null for externals. Prevents duplicates (by id when available, by name for externals). Auto-focuses the input after every add so supervisors can fly through a room.
+- Pages: list (search + date-range + conductor filter), new, `:id` (detail with attendance panel), `:id/edit`.
+
+### Wiring
+
+- `/app/training/{,new,:id,:id/edit}` mounted under `moduleGuard('toolbox_talks')`.
+- `MODULE_CATALOGUE.toolbox_talks` flipped to `isAvailable: true` with `route: 'training'` (DB key stays `toolbox_talks`). Sidebar label remains "Toolbox Talks" — industry-standard term.
+
+### Docs
+
+- User guide: new Toolbox Talks section covering session creation, member-vs-external attendee flow, date-range filtering, role permissions.
+- Admin guide: two new migration rows, two new table rows, module catalogue updated.
+
+---
+
 ## 2026-04-16 — Phase 6 review: Incident Reports polish
 
 Not committed yet at time of writing.
@@ -439,23 +603,21 @@ Shipped in commit [`54ebd83`](https://github.com/DevJ1975/soteria_platform/commi
 
 Nothing dated yet. Likely next increments:
 
-- **Report → corrective-action linkage** — add an optional
-  `incident_report_id` FK on `corrective_actions` (mirror of
-  `inspection_id`), a "Create corrective action" button on the incident
-  detail page with query-param deep-link, and a linked-actions panel on
-  the detail page to close the loop visually.
-- **Failed-check → corrective-action flow** — same cross-module linkage
-  for equipment checks (`equipment_check_id` FK on corrective_actions).
-- **Open-issues badges on list pages** — surface the count service
-  methods that already exist (`getOpenCountByInspection`,
-  `getActionableCountByEquipment`, and the new
-  `OPEN_INCIDENT_STATUSES` set) on their respective list pages.
+- **Heat compliance** or **LOTO** — the two remaining modules in the
+  catalogue.
+- **Open-issues badges on list pages** — the count methods now exist
+  for all three sources (`getOpenCountByInspection`,
+  `getOpenCountByIncidentReport`, `getOpenCountByEquipmentCheck`).
+  Surface them on the inspection, incident, and equipment list pages
+  as small chips next to each row.
 - **Admin UI** — web forms for toggling modules and changing user roles
   (replaces the SQL-only workflow).
 - **Invite flow** — admins add teammates by email; the trigger attaches
   them to the existing tenant instead of creating a new one.
 - **Inspection detail view** — read-only page at `/app/inspections/:id`
-  mirroring the equipment + incident detail page pattern.
+  mirroring the equipment + incident detail page pattern. The last
+  module that still puts its panel on the edit page instead of a
+  dedicated detail view.
 - **Role-based UI** — hide controls the current role can't use (delete
   buttons for workers, etc.), backed by the RLS policies already in
   place.

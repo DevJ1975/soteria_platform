@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   effect,
   inject,
   input,
@@ -15,16 +16,22 @@ import { CorrectiveActionStatusChipComponent } from '../corrective-action-status
 import { CorrectiveAction } from '../../models/corrective-action.model';
 import { CorrectiveActionsService } from '../../services/corrective-actions.service';
 
+type PanelScope =
+  | { type: 'inspection'; id: string }
+  | { type: 'incident_report'; id: string }
+  | { type: 'equipment_check'; id: string };
+
 /**
- * Reusable "Corrective actions for this inspection" panel.
+ * Reusable corrective-actions panel. Drops into any context that can
+ * produce findings — today:
+ *   - inspection edit page (via `[inspectionId]`)
+ *   - incident report detail page (via `[incidentReportId]`)
+ *   - equipment check context (via `[equipmentCheckId]`)
  *
- * Designed to be dropped into any context where we have an `inspectionId`
- * (inspection edit page today; detail view later). The panel loads its own
- * data, owns its own UI state, and navigates via RouterLink — the host
- * just provides the inspection id.
- *
- * The panel refetches when `inspectionId` changes (e.g. user navigates
- * between inspections without leaving the shell), via an `effect()`.
+ * Set exactly one of the three inputs. The panel figures out which
+ * service method to call for loading actions and which query param to
+ * deep-link the "Add corrective action" button to — so the new-action
+ * form lands pre-linked to the right source.
  */
 @Component({
   selector: 'sot-corrective-actions-panel',
@@ -36,17 +43,17 @@ import { CorrectiveActionsService } from '../../services/corrective-actions.serv
       <header class="panel__header">
         <div>
           <h2 class="panel__title">Corrective actions</h2>
-          <p class="panel__subtitle">
-            Issues tracked to resolution for this inspection.
-          </p>
+          <p class="panel__subtitle">{{ subtitle() }}</p>
         </div>
-        <a
-          class="sot-btn sot-btn--primary"
-          [routerLink]="['/app/corrective-actions/new']"
-          [queryParams]="{ inspectionId: inspectionId() }"
-        >
-          Add corrective action
-        </a>
+        @if (scope(); as s) {
+          <a
+            class="sot-btn sot-btn--primary"
+            [routerLink]="['/app/corrective-actions/new']"
+            [queryParams]="addActionQueryParams()"
+          >
+            Add corrective action
+          </a>
+        }
       </header>
 
       @if (errorMessage()) {
@@ -58,9 +65,7 @@ import { CorrectiveActionsService } from '../../services/corrective-actions.serv
       @if (loading()) {
         <div class="sot-state">Loading corrective actions…</div>
       } @else if (actions().length === 0) {
-        <div class="panel__empty">
-          No corrective actions yet for this inspection.
-        </div>
+        <div class="panel__empty">{{ emptyMessage() }}</div>
       } @else {
         <ul class="panel__list">
           @for (a of actions(); track a.id) {
@@ -160,26 +165,76 @@ export class CorrectiveActionsPanelComponent {
   private readonly service = inject(CorrectiveActionsService);
   private readonly guard = createGenerationGuard();
 
-  readonly inspectionId = input.required<string>();
+  // Exactly one should be set. Callers pass the id that matches their
+  // context; the panel picks up the rest.
+  readonly inspectionId = input<string | null>(null);
+  readonly incidentReportId = input<string | null>(null);
+  readonly equipmentCheckId = input<string | null>(null);
 
   protected readonly actions = signal<CorrectiveAction[]>([]);
   protected readonly loading = signal(false);
   protected readonly errorMessage = signal<string | null>(null);
 
+  protected readonly scope = computed<PanelScope | null>(() => {
+    const i = this.inspectionId();
+    if (i) return { type: 'inspection', id: i };
+    const r = this.incidentReportId();
+    if (r) return { type: 'incident_report', id: r };
+    const c = this.equipmentCheckId();
+    if (c) return { type: 'equipment_check', id: c };
+    return null;
+  });
+
+  protected readonly subtitle = computed(() => {
+    const s = this.scope();
+    if (s?.type === 'inspection')
+      return 'Findings from this inspection, tracked to resolution.';
+    if (s?.type === 'incident_report')
+      return 'Follow-up actions from this report.';
+    if (s?.type === 'equipment_check')
+      return 'Remediation for this check.';
+    return 'Related corrective actions.';
+  });
+
+  protected readonly emptyMessage = computed(() => {
+    const s = this.scope();
+    if (s?.type === 'inspection')
+      return 'No corrective actions yet for this inspection.';
+    if (s?.type === 'incident_report')
+      return 'No corrective actions yet for this report.';
+    if (s?.type === 'equipment_check')
+      return 'No corrective actions yet for this check.';
+    return 'No corrective actions yet.';
+  });
+
+  /** Maps the scope to the right query-param the CA form recognizes. */
+  protected readonly addActionQueryParams = computed(() => {
+    const s = this.scope();
+    if (!s) return {};
+    if (s.type === 'inspection') return { inspectionId: s.id };
+    if (s.type === 'incident_report') return { incidentReportId: s.id };
+    return { equipmentCheckId: s.id };
+  });
+
   constructor() {
     effect(() => {
-      const id = this.inspectionId();
-      if (!id) return;
-      void this.refresh(id);
+      const s = this.scope();
+      if (!s) return;
+      void this.refresh(s);
     });
   }
 
-  private async refresh(inspectionId: string): Promise<void> {
+  private async refresh(scope: PanelScope): Promise<void> {
     const gen = this.guard.next();
     this.loading.set(true);
     this.errorMessage.set(null);
     try {
-      const rows = await this.service.getCorrectiveActionsByInspection(inspectionId);
+      const rows =
+        scope.type === 'inspection'
+          ? await this.service.getCorrectiveActionsByInspection(scope.id)
+          : scope.type === 'incident_report'
+          ? await this.service.getCorrectiveActionsByIncidentReport(scope.id)
+          : await this.service.getCorrectiveActionsByEquipmentCheck(scope.id);
       if (!this.guard.isCurrent(gen)) return;
       this.actions.set(rows);
     } catch (err) {

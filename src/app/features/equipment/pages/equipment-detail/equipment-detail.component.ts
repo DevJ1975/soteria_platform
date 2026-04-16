@@ -64,7 +64,8 @@ import { EquipmentService } from '../../services/equipment.service';
       <div class="sot-state">Loading equipment…</div>
     } @else if (!equipment()) {
       <div class="sot-state">Equipment not found.</div>
-    } @else if (equipment(); as eq) {
+    } @else {
+      @let eq = equipment()!;
       <section class="summary sot-card">
         <div class="summary__row">
           <span class="summary__label">Status</span>

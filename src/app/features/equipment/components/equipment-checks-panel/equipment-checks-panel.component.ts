@@ -80,6 +80,15 @@ import { EquipmentChecksService } from '../../services/equipment-checks.service'
               <div class="row__top">
                 <sot-equipment-check-status-chip [status]="c.status" />
                 <span class="row__type">{{ typeLabel(c) }}</span>
+                @if (isActionable(c)) {
+                  <a
+                    class="row__action-link"
+                    [routerLink]="['/app/corrective-actions/new']"
+                    [queryParams]="{ equipmentCheckId: c.id }"
+                  >
+                    Create corrective action →
+                  </a>
+                }
               </div>
               @if (c.notes) {
                 <p class="row__notes">{{ c.notes }}</p>
@@ -158,6 +167,20 @@ import { EquipmentChecksService } from '../../services/equipment-checks.service'
         color: var(--color-text);
       }
 
+      /**
+       * Inline CTA only shown on actionable checks (fail / needs-attention).
+       * Styled as a link instead of a button so it stays out of the way on
+       * the happy-path "pass" rows (which don't get it at all).
+       */
+      .row__action-link {
+        margin-left: auto;
+        font-size: var(--font-size-sm);
+        font-weight: 500;
+        color: var(--color-primary);
+        white-space: nowrap;
+      }
+      .row__action-link:hover { text-decoration: underline; }
+
       .row__notes {
         color: var(--color-text);
         font-size: var(--font-size-sm);
@@ -203,6 +226,10 @@ export class EquipmentChecksPanelComponent {
 
   protected typeLabel(c: EquipmentCheck): string {
     return EQUIPMENT_CHECK_TYPE_LABEL[c.checkType] ?? c.checkType;
+  }
+
+  protected isActionable(c: EquipmentCheck): boolean {
+    return ACTIONABLE_EQUIPMENT_CHECK_STATUSES.includes(c.status);
   }
 
   protected readonly formatDate = formatDateTime;

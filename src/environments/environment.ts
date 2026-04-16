@@ -12,8 +12,9 @@ export const environment = {
   production: false,
   appName: 'Soteria',
   supabase: {
-    url: '',
-    anonKey: '',
+    url: 'https://jfrtkntiafvczduyrwed.supabase.co',
+    anonKey:
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpmcnRrbnRpYWZ2Y3pkdXlyd2VkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzNDY1MzgsImV4cCI6MjA5MTkyMjUzOH0.JeHNOjYvUpUkjcVn5z99UOvSXde-dREbv2CSo4_jaPw',
   },
   /**
    * When true, the ModuleRegistry will ignore the database tenant_modules

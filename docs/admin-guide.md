@@ -119,7 +119,7 @@ module even if they try.
 | `equipment_checks` | Equipment | ✅ full UI (asset register + check history) |
 | `corrective_actions` | Corrective Actions | ✅ full UI |
 | `incidents` | Incidents & Near Misses | ✅ full UI |
-| `toolbox_talks` | Toolbox Talks | not yet |
+| `toolbox_talks` | Toolbox Talks | ✅ full UI (sessions + attendance) |
 | `heat_compliance` | Heat Compliance | not yet |
 | `loto` | LOTO | not yet |
 
@@ -168,6 +168,8 @@ To surface a **new** module, all three of these must be true:
 | `equipment` | Asset register. Unique asset tag per tenant. |
 | `equipment_checks` | Check history against equipment. Denormalized tenant_id with alignment trigger. |
 | `incident_reports` | Incidents, near misses, injuries, observations. |
+| `training_sessions` | Toolbox talks / training events. |
+| `training_attendance` | Per-attendee records. Denormalized tenant_id with alignment trigger. |
 
 ### RLS surface
 
@@ -194,6 +196,9 @@ Current migrations:
 | `20260416120006_equipment_checks.sql` | `equipment_checks` table, enum, indexes, four RLS policies, cross-tenant alignment trigger. |
 | `20260416120007_incident_reports.sql` | `incident_reports` table, three enums, indexes, four RLS policies. |
 | `20260416120008_enable_incidents_module.sql` | Flips `modules.is_available = true` for `incidents`, backfills `tenant_modules` for existing tenants, updates `handle_new_user` to enable the module for new signups. |
+| `20260416120009_training.sql` | `training_sessions` + `training_attendance` tables, indexes, cross-tenant alignment trigger, RLS (select tenant, write staff, delete admin on sessions; write staff on attendance). |
+| `20260416120010_enable_toolbox_talks_module.sql` | Same three-step activation as incidents: flip `is_available`, backfill, extend trigger. |
+| `20260416120011_corrective_actions_cross_module_linkage.sql` | Adds `incident_report_id` and `equipment_check_id` FKs on `corrective_actions`. Replaces the inspection-only cross-tenant trigger with a unified one that validates all three linkage FKs. |
 
 ---
 

@@ -69,6 +69,14 @@ export const APP_ROUTES: Routes = [
             (m) => m.INCIDENT_REPORTS_ROUTES,
           ),
       },
+      {
+        path: 'training',
+        canActivate: [moduleGuard('toolbox_talks')],
+        loadChildren: () =>
+          import('./features/training/training.routes').then(
+            (m) => m.TRAINING_ROUTES,
+          ),
+      },
     ],
   },
   { path: '**', redirectTo: 'app' },

@@ -19,20 +19,26 @@ import {
  * Tenant isolation follows the same two-layer pattern as InspectionsService:
  *  1. RLS policies are the authoritative enforcement layer.
  *  2. Every query ALSO carries an explicit `.eq('tenant_id', …)` — defense
- *     in depth plus self-documenting intent at the call site.
+ *     in depth plus self-documenting intent at every call site.
  *
- * Joins: the list and panel queries embed the linked inspection's `id`
- * and `title` in a single round-trip via PostgREST's `select=… , join(…)`
- * syntax. The mapper lifts the embedded row into `linkedInspection`.
+ * Joins: the list and panel queries embed all three possible linked
+ * records (inspection · incident report · equipment check) in a single
+ * round-trip via PostgREST's embedded-select syntax. The DB trigger
+ * guarantees at most one is populated in practice, but the type shape
+ * accommodates any.
  */
 @Injectable({ providedIn: 'root' })
 export class CorrectiveActionsService {
   private readonly supabase = inject(SupabaseService);
   private readonly auth = inject(AuthService);
 
-  /** Columns we always select, including the embedded inspection join. */
-  private readonly SELECT_WITH_INSPECTION =
-    '*, linked_inspection:inspections!corrective_actions_inspection_id_fkey(id, title)';
+  /** Columns + all three embedded links in a single select string. */
+  private readonly SELECT_WITH_LINKS = [
+    '*',
+    'linked_inspection:inspections!corrective_actions_inspection_id_fkey(id, title)',
+    'linked_incident_report:incident_reports!corrective_actions_incident_report_id_fkey(id, title)',
+    'linked_equipment_check:equipment_checks!corrective_actions_equipment_check_id_fkey(id, equipment_id, check_type, performed_at)',
+  ].join(', ');
 
   async getCorrectiveActions(
     filters: CorrectiveActionFilters = {},
@@ -41,7 +47,7 @@ export class CorrectiveActionsService {
 
     let query = this.supabase.client
       .from('corrective_actions')
-      .select(this.SELECT_WITH_INSPECTION)
+      .select(this.SELECT_WITH_LINKS)
       .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false });
 
@@ -77,7 +83,7 @@ export class CorrectiveActionsService {
     const tenantId = this.requireTenantId();
     const { data, error } = await this.supabase.client
       .from('corrective_actions')
-      .select(this.SELECT_WITH_INSPECTION)
+      .select(this.SELECT_WITH_LINKS)
       .eq('tenant_id', tenantId)
       .eq('id', id)
       .maybeSingle();
@@ -85,36 +91,40 @@ export class CorrectiveActionsService {
     return data ? mapRow(data) : null;
   }
 
-  /** Returns all actions linked to one inspection, newest first. */
+  /** All actions linked to one inspection, newest first. */
   async getCorrectiveActionsByInspection(
     inspectionId: string,
   ): Promise<CorrectiveAction[]> {
-    const tenantId = this.requireTenantId();
-    const { data, error } = await this.supabase.client
-      .from('corrective_actions')
-      .select(this.SELECT_WITH_INSPECTION)
-      .eq('tenant_id', tenantId)
-      .eq('inspection_id', inspectionId)
-      .order('created_at', { ascending: false });
-    if (error) throw error;
-    return (data ?? []).map(mapRow);
+    return this.findByLink('inspection_id', inspectionId);
   }
 
-  /**
-   * Counts open actions linked to one inspection. Shaped for the future
-   * "X open actions" badge on the inspections list; cheap because of the
-   * partial index on `inspection_id`.
-   */
+  /** All actions linked to one incident report, newest first. */
+  async getCorrectiveActionsByIncidentReport(
+    incidentReportId: string,
+  ): Promise<CorrectiveAction[]> {
+    return this.findByLink('incident_report_id', incidentReportId);
+  }
+
+  /** All actions linked to one equipment check, newest first. */
+  async getCorrectiveActionsByEquipmentCheck(
+    equipmentCheckId: string,
+  ): Promise<CorrectiveAction[]> {
+    return this.findByLink('equipment_check_id', equipmentCheckId);
+  }
+
+  /** Open-action count for the inspection list / future badges. */
   async getOpenCountByInspection(inspectionId: string): Promise<number> {
-    const tenantId = this.requireTenantId();
-    const { count, error } = await this.supabase.client
-      .from('corrective_actions')
-      .select('*', { count: 'exact', head: true })
-      .eq('tenant_id', tenantId)
-      .eq('inspection_id', inspectionId)
-      .in('status', [...OPEN_CORRECTIVE_ACTION_STATUSES]);
-    if (error) throw error;
-    return count ?? 0;
+    return this.openCountByLink('inspection_id', inspectionId);
+  }
+
+  /** Open-action count for the incident-report list / detail page. */
+  async getOpenCountByIncidentReport(incidentReportId: string): Promise<number> {
+    return this.openCountByLink('incident_report_id', incidentReportId);
+  }
+
+  /** Open-action count for the equipment-check panel row. */
+  async getOpenCountByEquipmentCheck(equipmentCheckId: string): Promise<number> {
+    return this.openCountByLink('equipment_check_id', equipmentCheckId);
   }
 
   async createCorrectiveAction(
@@ -124,10 +134,6 @@ export class CorrectiveActionsService {
     const userId = this.auth.session()?.user.id;
     if (!userId) throw new Error('Not authenticated.');
 
-    // If the caller creates an action already in a terminal state, stamp
-    // completed_at so the audit trail is right. `verified` gets a stamp
-    // too — at creation time there's no prior "completed" timestamp to
-    // preserve, so "now" is the best we have.
     const autoCompletedAt = isTerminal(payload.status)
       ? new Date().toISOString()
       : null;
@@ -136,6 +142,8 @@ export class CorrectiveActionsService {
       tenant_id: tenantId,
       created_by: userId,
       inspection_id: payload.inspectionId ?? null,
+      incident_report_id: payload.incidentReportId ?? null,
+      equipment_check_id: payload.equipmentCheckId ?? null,
       title: payload.title,
       description: payload.description ?? '',
       status: payload.status ?? 'open',
@@ -148,7 +156,7 @@ export class CorrectiveActionsService {
     const { data, error } = await this.supabase.client
       .from('corrective_actions')
       .insert(row)
-      .select(this.SELECT_WITH_INSPECTION)
+      .select(this.SELECT_WITH_LINKS)
       .single();
 
     if (error) throw error;
@@ -167,29 +175,19 @@ export class CorrectiveActionsService {
     if (payload.status !== undefined) row['status'] = payload.status;
     if (payload.priority !== undefined) row['priority'] = payload.priority;
     if (payload.inspectionId !== undefined) row['inspection_id'] = payload.inspectionId;
+    if (payload.incidentReportId !== undefined) row['incident_report_id'] = payload.incidentReportId;
+    if (payload.equipmentCheckId !== undefined) row['equipment_check_id'] = payload.equipmentCheckId;
     if (payload.assignedTo !== undefined) row['assigned_to'] = payload.assignedTo;
     if (payload.dueDate !== undefined) row['due_date'] = payload.dueDate;
     if (payload.completedAt !== undefined) row['completed_at'] = payload.completedAt;
 
-    // Derive completed_at from status transitions unless the caller set
-    // it explicitly. Rules:
-    //   - TO 'completed'  → stamp now()
-    //   - TO 'verified'   → leave existing completed_at untouched, so
-    //                       completed→verified preserves the original
-    //                       completion time instead of overwriting it
-    //                       with the (later) verification time.
-    //   - ANY other state → clear the stamp (no longer "done")
-    // Doing this at the service means we don't need an extra fetch to
-    // see prior state; the trade-off is that a direct in_progress→verified
-    // jump leaves completed_at null. A future `verified_at` column plus
-    // a DB trigger would let us track both moments independently.
+    // completed_at rule (see previous review pass for rationale):
+    //   TO 'completed'  → stamp now
+    //   TO 'verified'   → preserve existing (return undefined, key omitted)
+    //   else            → clear
     if (payload.status !== undefined && payload.completedAt === undefined) {
       const derived = deriveCompletedAt(payload.status);
-      // undefined means "don't touch". JSON would coerce it to null and
-      // clear the column, so we omit the key entirely.
-      if (derived !== undefined) {
-        row['completed_at'] = derived;
-      }
+      if (derived !== undefined) row['completed_at'] = derived;
     }
 
     const { data, error } = await this.supabase.client
@@ -197,7 +195,7 @@ export class CorrectiveActionsService {
       .update(row)
       .eq('tenant_id', tenantId)
       .eq('id', id)
-      .select(this.SELECT_WITH_INSPECTION)
+      .select(this.SELECT_WITH_LINKS)
       .single();
 
     if (error) throw error;
@@ -214,6 +212,36 @@ export class CorrectiveActionsService {
     if (error) throw error;
   }
 
+  private async findByLink(
+    column: 'inspection_id' | 'incident_report_id' | 'equipment_check_id',
+    id: string,
+  ): Promise<CorrectiveAction[]> {
+    const tenantId = this.requireTenantId();
+    const { data, error } = await this.supabase.client
+      .from('corrective_actions')
+      .select(this.SELECT_WITH_LINKS)
+      .eq('tenant_id', tenantId)
+      .eq(column, id)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return (data ?? []).map(mapRow);
+  }
+
+  private async openCountByLink(
+    column: 'inspection_id' | 'incident_report_id' | 'equipment_check_id',
+    id: string,
+  ): Promise<number> {
+    const tenantId = this.requireTenantId();
+    const { count, error } = await this.supabase.client
+      .from('corrective_actions')
+      .select('*', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId)
+      .eq(column, id)
+      .in('status', [...OPEN_CORRECTIVE_ACTION_STATUSES]);
+    if (error) throw error;
+    return count ?? 0;
+  }
+
   private requireTenantId(): string {
     const id = this.auth.tenantId();
     if (!id) throw new Error('Not authenticated or missing tenant context.');
@@ -221,33 +249,38 @@ export class CorrectiveActionsService {
   }
 }
 
-/** Terminal = "work is done", for the auto-stamp rule on completed_at. */
 function isTerminal(status: CorrectiveAction['status'] | undefined): boolean {
   return status === 'completed' || status === 'verified';
 }
 
-/**
- * completed_at rule for UPDATEs. Returns `undefined` to mean "don't touch
- * this column" — the caller only spreads defined values into the row, so
- * omitting preserves whatever is already in the DB.
- */
 function deriveCompletedAt(
   status: CorrectiveActionStatus,
 ): string | null | undefined {
   if (status === 'completed') return new Date().toISOString();
-  if (status === 'verified') return undefined; // preserve existing
-  return null; // any other state → clear
+  if (status === 'verified') return undefined;
+  return null;
 }
 
 function mapRow(row: Record<string, unknown>): CorrectiveAction {
-  const embedded = row['linked_inspection'] as
+  const insp = row['linked_inspection'] as
     | { id: string; title: string }
     | null
     | undefined;
+  const incident = row['linked_incident_report'] as
+    | { id: string; title: string }
+    | null
+    | undefined;
+  const check = row['linked_equipment_check'] as
+    | { id: string; equipment_id: string; check_type: string; performed_at: string }
+    | null
+    | undefined;
+
   return {
     id: row['id'] as string,
     tenantId: row['tenant_id'] as string,
     inspectionId: (row['inspection_id'] as string | null) ?? null,
+    incidentReportId: (row['incident_report_id'] as string | null) ?? null,
+    equipmentCheckId: (row['equipment_check_id'] as string | null) ?? null,
     title: row['title'] as string,
     description: (row['description'] as string) ?? '',
     status: row['status'] as CorrectiveAction['status'],
@@ -258,6 +291,15 @@ function mapRow(row: Record<string, unknown>): CorrectiveAction {
     createdBy: row['created_by'] as string,
     createdAt: row['created_at'] as string,
     updatedAt: row['updated_at'] as string,
-    linkedInspection: embedded ?? null,
+    linkedInspection: insp ?? null,
+    linkedIncidentReport: incident ?? null,
+    linkedEquipmentCheck: check
+      ? {
+          id: check.id,
+          equipmentId: check.equipment_id,
+          checkType: check.check_type,
+          performedAt: check.performed_at,
+        }
+      : null,
   };
 }
