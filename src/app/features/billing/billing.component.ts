@@ -12,8 +12,17 @@ import { SubscriptionPlansService } from '@core/services/subscription-plans.serv
 import { SubscriptionService } from '@core/services/subscription.service';
 import { PageHeaderComponent } from '@shared/components/page-header/page-header.component';
 import { SubscriptionStatusBadgeComponent } from '@shared/components/subscription-status-badge/subscription-status-badge.component';
-import { formatActivityDate } from '@shared/utils/date.util';
+import { formatActivityDateOrDash } from '@shared/utils/date.util';
 import { extractErrorMessage } from '@shared/utils/errors.util';
+
+/** mailto: link for pre-billing sales inquiries. Swap for `environment`-driven value when we have per-env config. */
+const SALES_MAILTO = 'mailto:sales@soteria.example?subject=Soteria%20billing%20inquiry';
+
+interface StatusCallout {
+  variant: 'info' | 'warn' | 'danger';
+  title: string;
+  body: string;
+}
 
 /**
  * Tenant-facing billing page.
@@ -55,19 +64,11 @@ import { extractErrorMessage } from '@shared/utils/errors.util';
         contact support so we can reset your account.
       </div>
     } @else {
-      @if (!subs.hasAccess()) {
-        <div class="lockout sot-card" role="alert">
-          <h2 class="lockout__title">Your access is paused</h2>
-          <p class="lockout__body">
-            @if (subs.trialExpired()) {
-              Your free trial has ended. To continue using Soteria, please
-              contact us to move to a paid plan.
-            } @else {
-              Your subscription is no longer active. Reach out to sales to
-              reactivate your organization.
-            }
-          </p>
-          <a class="sot-btn sot-btn--primary" [href]="salesMailto()">Contact sales</a>
+      @if (callout(); as c) {
+        <div class="callout sot-card" [attr.data-variant]="c.variant" role="alert">
+          <h2 class="callout__title">{{ c.title }}</h2>
+          <p class="callout__body">{{ c.body }}</p>
+          <a class="sot-btn sot-btn--primary" [href]="salesMailto">Contact sales</a>
         </div>
       }
 
@@ -123,48 +124,55 @@ import { extractErrorMessage } from '@shared/utils/errors.util';
       <section class="actions sot-card">
         <div class="actions__row">
           <div>
-            <h3 class="actions__title">Upgrade plan</h3>
+            <h3 class="actions__title">Change your plan</h3>
             <p class="actions__body">
-              Self-serve upgrades are coming soon. For now, reach out and
-              we'll switch your plan for you.
+              Self-serve checkout is coming soon. Until then, contact sales and
+              we'll switch plans, handle upgrades, or process cancellations
+              for you.
             </p>
           </div>
-          <button type="button" class="sot-btn sot-btn--primary" disabled>
-            Coming soon
-          </button>
-        </div>
-
-        <div class="actions__row">
-          <div>
-            <h3 class="actions__title">Contact sales</h3>
-            <p class="actions__body">
-              Have billing questions, need a custom plan, or want to cancel?
-              We're one email away.
-            </p>
+          <div class="actions__buttons">
+            <button type="button" class="sot-btn sot-btn--primary" disabled>
+              Upgrade (coming soon)
+            </button>
+            <a class="sot-btn sot-btn--ghost" [href]="salesMailto">
+              Contact sales
+            </a>
           </div>
-          <a class="sot-btn sot-btn--ghost" [href]="salesMailto()">
-            Email sales
-          </a>
         </div>
       </section>
     }
   `,
   styles: [
     `
-      .lockout {
+      .callout {
         padding: var(--space-5);
         margin-bottom: var(--space-5);
-        border: 1px solid #fecaca;
-        background: #fef2f2;
       }
-      .lockout__title {
-        color: #991b1b;
+      .callout[data-variant='danger'] {
+        background: #fef2f2;
+        border: 1px solid #fecaca;
+      }
+      .callout[data-variant='danger'] .callout__title { color: #991b1b; }
+      .callout[data-variant='danger'] .callout__body  { color: #7f1d1d; }
+      .callout[data-variant='warn'] {
+        background: #fef3c7;
+        border: 1px solid #fcd34d;
+      }
+      .callout[data-variant='warn'] .callout__title { color: #92400e; }
+      .callout[data-variant='warn'] .callout__body  { color: #78350f; }
+      .callout[data-variant='info'] {
+        background: #eff6ff;
+        border: 1px solid #bfdbfe;
+      }
+      .callout[data-variant='info'] .callout__title { color: #1d4ed8; }
+      .callout[data-variant='info'] .callout__body  { color: #1e3a8a; }
+      .callout__title {
         font-size: var(--font-size-md);
         font-weight: 600;
         margin-bottom: var(--space-2);
       }
-      .lockout__body {
-        color: #7f1d1d;
+      .callout__body {
         margin-bottom: var(--space-4);
       }
 
@@ -251,6 +259,12 @@ import { extractErrorMessage } from '@shared/utils/errors.util';
       .actions__row + .actions__row {
         border-top: 1px solid var(--color-border);
       }
+      .actions__buttons {
+        display: flex;
+        gap: var(--space-2);
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
       .actions__title {
         font-size: var(--font-size-md);
         font-weight: 600;
@@ -291,17 +305,45 @@ export class BillingComponent implements OnInit {
   );
 
   protected readonly remainingDays = this.subs.remainingTrialDays;
-
-  protected readonly formatDate = (value: string | null) =>
-    value ? formatActivityDate(value) : '—';
+  protected readonly formatDate = formatActivityDateOrDash;
+  protected readonly salesMailto = SALES_MAILTO;
 
   /**
-   * Sales email is a platform-wide constant today; when we have a
-   * real config endpoint or `environment.billingEmail`, wire that in
-   * instead.
+   * Status-specific callout rendered above the plan card. Returns
+   * `null` when everything's healthy so the page stays clean.
+   * Mirrors the logic in `TrialStatusBannerComponent` but tuned for
+   * the richer billing-page real estate — longer copy, action-
+   * oriented titles.
    */
-  protected readonly salesMailto = () =>
-    'mailto:sales@soteria.example?subject=Soteria%20billing%20inquiry';
+  protected readonly callout = computed<StatusCallout | null>(() => {
+    const sub = this.subs.current();
+    if (!sub) return null;
+
+    if (!this.subs.hasAccess()) {
+      return {
+        variant: 'danger',
+        title: 'Your access is paused',
+        body: this.subs.trialExpired()
+          ? 'Your free trial has ended. To continue using Soteria, please contact sales to move to a paid plan.'
+          : 'Your subscription is no longer active. Reach out to reactivate your organization.',
+      };
+    }
+    if (sub.status === 'past_due') {
+      return {
+        variant: 'warn',
+        title: 'Payment needs attention',
+        body: 'We were unable to collect your most recent payment. Update your payment method to avoid interruption.',
+      };
+    }
+    if (sub.status === 'canceled' && sub.cancelAt) {
+      return {
+        variant: 'warn',
+        title: 'Cancellation scheduled',
+        body: `Your subscription is set to end on ${formatActivityDateOrDash(sub.cancelAt)}. You still have access until then.`,
+      };
+    }
+    return null;
+  });
 
   async ngOnInit(): Promise<void> {
     try {

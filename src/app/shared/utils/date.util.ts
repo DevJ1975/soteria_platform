@@ -98,3 +98,13 @@ function formatUnit(value: number, suffix: string, future: boolean): string {
   const n = Math.max(1, Math.floor(value));
   return future ? `in ${n}${suffix}` : `${n}${suffix} ago`;
 }
+
+/**
+ * Safe wrapper around `formatActivityDate` that renders an em-dash
+ * when the value is null/undefined. Extracted after the billing page
+ * and tenant-edit page both needed the same "value or dash" pattern
+ * for optional timestamp fields (trial_end_date, cancel_at, etc.).
+ */
+export function formatActivityDateOrDash(value: string | null | undefined): string {
+  return value ? formatActivityDate(value) : '—';
+}

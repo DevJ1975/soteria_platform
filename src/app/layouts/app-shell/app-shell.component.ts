@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, inject, OnInit } from '@angular/cor
 import { RouterOutlet } from '@angular/router';
 
 import { SubscriptionService } from '@core/services/subscription.service';
+import { TrialStatusBannerComponent } from '@shared/components/trial-status-banner/trial-status-banner.component';
 
 import { SidebarComponent } from './sidebar/sidebar.component';
 import { TopbarComponent } from './topbar/topbar.component';
@@ -16,13 +17,19 @@ import { TopbarComponent } from './topbar/topbar.component';
 @Component({
   selector: 'sot-app-shell',
   standalone: true,
-  imports: [RouterOutlet, SidebarComponent, TopbarComponent],
+  imports: [
+    RouterOutlet,
+    SidebarComponent,
+    TopbarComponent,
+    TrialStatusBannerComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="shell">
       <sot-sidebar class="shell__sidebar" />
       <div class="shell__main">
         <sot-topbar />
+        <sot-trial-status-banner />
         <main class="shell__content">
           <router-outlet />
         </main>

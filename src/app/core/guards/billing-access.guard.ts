@@ -35,10 +35,16 @@ export const billingAccessGuard: CanActivateFn = async () => {
   if (!subs.loaded()) {
     try {
       await subs.refresh();
-    } catch {
-      // If the fetch fails we fail open rather than locking the
-      // tenant out on an incidental DB hiccup. The billing page will
-      // surface the error the next time it loads.
+    } catch (err) {
+      // Fail open rather than locking the tenant out on an incidental
+      // DB hiccup — the billing page will surface the error the next
+      // time it loads. Log so the failure is visible in devtools /
+      // future observability sinks instead of silently hidden.
+      // eslint-disable-next-line no-console
+      console.error(
+        '[billingAccessGuard] Subscription refresh failed; failing open.',
+        err,
+      );
       return true;
     }
   }

@@ -1,10 +1,5 @@
 import { inject, Injectable } from '@angular/core';
 
-import { SupabaseService } from '@core/services/supabase.service';
-import {
-  mapSubscriptionRow,
-  SUBSCRIPTION_SELECT_COLUMNS,
-} from '@core/services/subscription.service';
 import {
   BillingEventType,
   CreateSubscriptionPayload,
@@ -12,8 +7,15 @@ import {
   SubscriptionStatus,
   UpdateSubscriptionPayload,
 } from '@core/models';
-
 import { BillingEventsService } from '@core/services/billing-events.service';
+import { SupabaseService } from '@core/services/supabase.service';
+import {
+  mapSubscriptionRow,
+  SUBSCRIPTION_COLUMNS,
+} from '@core/utils/subscription-mappers.util';
+
+/** Default trial length when the admin UI hits "Start / restart trial". */
+const TRIAL_DEFAULT_DAYS = 14;
 
 /**
  * Cross-tenant subscription writes for the platform admin area.
@@ -37,10 +39,11 @@ export class PlatformAdminSubscriptionsService {
   private readonly supabase = inject(SupabaseService);
   private readonly events = inject(BillingEventsService);
 
-  async getSubscription(tenantId: string): Promise<Subscription | null> {
+  /** Fetches the subscription for a tenant (there's exactly one). */
+  async getByTenantId(tenantId: string): Promise<Subscription | null> {
     const { data, error } = await this.supabase.client
       .from('subscriptions')
-      .select(SUBSCRIPTION_SELECT_COLUMNS)
+      .select(SUBSCRIPTION_COLUMNS)
       .eq('tenant_id', tenantId)
       .maybeSingle();
     if (error) throw error;
@@ -53,7 +56,9 @@ export class PlatformAdminSubscriptionsService {
    * `tenants_create_subscription` trigger normally handles the happy
    * path at signup time.
    */
-  async createSubscription(payload: CreateSubscriptionPayload): Promise<Subscription> {
+  async createSubscription(
+    payload: CreateSubscriptionPayload,
+  ): Promise<Subscription> {
     const row = {
       tenant_id: payload.tenantId,
       plan_id: payload.planId ?? null,
@@ -66,7 +71,7 @@ export class PlatformAdminSubscriptionsService {
     const { data, error } = await this.supabase.client
       .from('subscriptions')
       .insert(row)
-      .select(SUBSCRIPTION_SELECT_COLUMNS)
+      .select(SUBSCRIPTION_COLUMNS)
       .single();
     if (error) throw error;
     const subscription = mapSubscriptionRow(data);
@@ -86,19 +91,16 @@ export class PlatformAdminSubscriptionsService {
       .from('subscriptions')
       .update(row)
       .eq('id', id)
-      .select(SUBSCRIPTION_SELECT_COLUMNS)
+      .select(SUBSCRIPTION_COLUMNS)
       .single();
     if (error) throw error;
     return mapSubscriptionRow(data);
   }
 
   /**
-   * Plan change with event logging. If the new plan's sort_order is
-   * higher than the old one we log a `plan_upgraded` event; lower is
-   * `plan_downgraded`; same or uncomparable is `plan_changed`. The
-   * sort-order proxy is imperfect but good enough for an audit log;
-   * fix the classification later if/when we introduce explicit plan
-   * tiers.
+   * Plan change with audit logging. Sort-order heuristic classifies
+   * the change as upgrade / downgrade / sideways; imperfect but
+   * adequate until explicit plan tiers are defined.
    */
   async changePlan(
     subscription: Subscription,
@@ -110,7 +112,7 @@ export class PlatformAdminSubscriptionsService {
       .from('subscriptions')
       .update({ plan_id: newPlanId })
       .eq('id', subscription.id)
-      .select(SUBSCRIPTION_SELECT_COLUMNS)
+      .select(SUBSCRIPTION_COLUMNS)
       .single();
     if (error) throw error;
     const updated = mapSubscriptionRow(data);
@@ -127,14 +129,23 @@ export class PlatformAdminSubscriptionsService {
   }
 
   /**
-   * Starts (or restarts) a trial. Sets status → trialing and fills in
-   * trial dates; doesn't touch current_period_* since trials don't
-   * generate paid periods.
+   * Starts (or restarts) a trial. Refuses to downgrade an already-
+   * active paying subscription back into trial — that's almost never
+   * what the operator means to do from a single-button UI, and it
+   * loses the current_period_* state that Stripe will want later.
+   * Callers can still bypass by using `updateSubscription()` directly
+   * if the situation really warrants it.
    */
   async startTrial(
     subscription: Subscription,
-    trialDays = 14,
+    trialDays = TRIAL_DEFAULT_DAYS,
   ): Promise<Subscription> {
+    if (subscription.status === 'active') {
+      throw new Error(
+        'Refusing to reset a trial on an active paying subscription. ' +
+          'Cancel or downgrade first, then start the trial.',
+      );
+    }
     const now = new Date();
     const end = new Date(now.getTime() + trialDays * 24 * 60 * 60 * 1000);
     const { data, error } = await this.supabase.client
@@ -147,7 +158,7 @@ export class PlatformAdminSubscriptionsService {
         canceled_at: null,
       })
       .eq('id', subscription.id)
-      .select(SUBSCRIPTION_SELECT_COLUMNS)
+      .select(SUBSCRIPTION_COLUMNS)
       .single();
     if (error) throw error;
     const updated = mapSubscriptionRow(data);
@@ -183,7 +194,7 @@ export class PlatformAdminSubscriptionsService {
         canceled_at: now.toISOString(),
       })
       .eq('id', subscription.id)
-      .select(SUBSCRIPTION_SELECT_COLUMNS)
+      .select(SUBSCRIPTION_COLUMNS)
       .single();
     if (error) throw error;
     const updated = mapSubscriptionRow(data);
@@ -197,8 +208,8 @@ export class PlatformAdminSubscriptionsService {
   /**
    * Admin override: set the status to any value. Logs a
    * `status_changed` event with both the previous and new status for
-   * traceability. Intended for support / recovery scenarios; day-to-day
-   * transitions should go through the dedicated methods above.
+   * traceability. Intended for support / recovery scenarios; day-to-
+   * day transitions should go through the dedicated methods above.
    */
   async setStatus(
     subscription: Subscription,
@@ -210,7 +221,7 @@ export class PlatformAdminSubscriptionsService {
       .from('subscriptions')
       .update({ status: newStatus })
       .eq('id', subscription.id)
-      .select(SUBSCRIPTION_SELECT_COLUMNS)
+      .select(SUBSCRIPTION_COLUMNS)
       .single();
     if (error) throw error;
     const updated = mapSubscriptionRow(data);

@@ -330,21 +330,55 @@ integration lands. Read it via
 
 ### Future Stripe integration
 
-The subscription schema ships with three fields specifically for a
-provider integration:
+The subscription schema ships with the fields a provider integration
+needs, so the Stripe phase is purely additive code (no migration):
 
-- `external_customer_id` — Stripe customer id.
-- `external_subscription_id` — Stripe subscription id (indexed for
-  webhook lookups).
-- `metadata` JSONB — arbitrary provider payload.
+| Field | Purpose |
+| --- | --- |
+| `subscriptions.external_customer_id` | Stripe customer id. Captured from `checkout.session.completed`. |
+| `subscriptions.external_subscription_id` | Stripe subscription id. Indexed for webhook lookups. |
+| `subscriptions.metadata` JSONB | Arbitrary provider payload — latest invoice, price id, etc. |
 
-A webhook handler would:
-1. Look up the row by `external_subscription_id`.
-2. Update the row's `status`, `current_period_*`, `cancel_at`.
-3. Insert a matching `billing_events` row (the event type enum
-   already covers Stripe's shapes).
+#### Stripe event → internal action map
 
-No schema changes required.
+| Stripe event | Internal update | Billing event |
+| --- | --- | --- |
+| `checkout.session.completed` | Populate `external_customer_id`, `external_subscription_id`. Status → `active`. | `subscription_reactivated` (or `plan_upgraded` on plan switch) |
+| `customer.subscription.updated` | Sync `status`, `current_period_*`, `cancel_at` from Stripe. | `status_changed` if status changed; `plan_upgraded` / `plan_downgraded` / `plan_changed` if price id changed. |
+| `customer.subscription.deleted` | Status → `inactive`, `canceled_at = now()`. | `subscription_canceled` |
+| `invoice.payment_succeeded` | Status → `active`, advance `current_period_end`. | `status_changed` |
+| `invoice.payment_failed` | Status → `past_due`. | `status_changed` |
+
+Stripe's status enum maps 1:1 to ours except for `incomplete` /
+`incomplete_expired` / `unpaid` — flatten those to `inactive`.
+
+#### Shape of the integration
+
+A concrete implementation is three Supabase Edge Functions:
+
+1. **`create-checkout-session`** — called from the tenant billing page
+   "Upgrade" button. Resolves the target plan's `stripe_price_id`
+   (new column to add in a Phase 13 migration), creates a Stripe
+   Checkout Session, returns the redirect URL.
+2. **`create-portal-session`** — called from a "Manage subscription"
+   button once the tenant has an `external_customer_id`. Creates a
+   Stripe Billing Portal session for plan/payment-method changes.
+3. **`stripe-webhook`** — public endpoint receiving Stripe webhook
+   POSTs. Verifies the signature, maps the event per the table above,
+   updates `subscriptions` + appends to `billing_events`. Uses the
+   Supabase service-role key to bypass RLS (the webhook isn't a user
+   request).
+
+Secrets to provision in Supabase before the functions run:
+
+```bash
+supabase secrets set STRIPE_SECRET_KEY=sk_test_...
+supabase secrets set STRIPE_WEBHOOK_SECRET=whsec_...
+```
+
+Plan mapping lives on `subscription_plans.stripe_price_id` (Phase 13
+adds the column). The platform-admin plan editor gains an input for
+it; the checkout function refuses to run against an unmapped plan.
 
 ---
 

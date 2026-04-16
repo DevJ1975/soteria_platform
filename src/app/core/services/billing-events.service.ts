@@ -1,6 +1,10 @@
 import { inject, Injectable } from '@angular/core';
 
 import { BillingEvent, BillingEventType } from '../models/subscription.model';
+import {
+  BILLING_EVENT_COLUMNS,
+  mapBillingEventRow,
+} from '../utils/subscription-mappers.util';
 import { SupabaseService } from './supabase.service';
 
 interface LogEventPayload {
@@ -21,7 +25,7 @@ interface LogEventPayload {
  *
  * Tenant users can read their own tenant's events via RLS; writes are
  * platform-admin only (enforced at the DB level too). Tenant-side UI
- * can therefore safely render an "audit trail" without worrying about
+ * can therefore safely render an audit trail without worrying about
  * accidental cross-tenant leakage.
  */
 @Injectable({ providedIn: 'root' })
@@ -45,7 +49,7 @@ export class BillingEventsService {
       .select(BILLING_EVENT_COLUMNS)
       .single();
     if (error) throw error;
-    return mapRow(data);
+    return mapBillingEventRow(data);
   }
 
   /**
@@ -64,21 +68,6 @@ export class BillingEventsService {
       .order('created_at', { ascending: false })
       .limit(limit);
     if (error) throw error;
-    return (data ?? []).map(mapRow);
+    return (data ?? []).map(mapBillingEventRow);
   }
-}
-
-const BILLING_EVENT_COLUMNS =
-  'id, tenant_id, subscription_id, event_type, metadata, created_at';
-
-function mapRow(row: unknown): BillingEvent {
-  const r = row as Record<string, unknown>;
-  return {
-    id: r['id'] as string,
-    tenantId: r['tenant_id'] as string,
-    subscriptionId: (r['subscription_id'] as string | null) ?? null,
-    eventType: r['event_type'] as BillingEvent['eventType'],
-    metadata: (r['metadata'] as Record<string, unknown>) ?? {},
-    createdAt: r['created_at'] as string,
-  };
 }

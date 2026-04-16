@@ -22,7 +22,7 @@ import {
 } from '@core/utils/subscription-access.util';
 import { PageHeaderComponent } from '@shared/components/page-header/page-header.component';
 import { SubscriptionStatusBadgeComponent } from '@shared/components/subscription-status-badge/subscription-status-badge.component';
-import { formatActivityDate } from '@shared/utils/date.util';
+import { formatActivityDateOrDash } from '@shared/utils/date.util';
 import { extractErrorMessage, isUniqueViolation } from '@shared/utils/errors.util';
 
 import { TenantStatusChipComponent } from '../../components/tenant-status-chip/tenant-status-chip.component';
@@ -433,8 +433,7 @@ export class PlatformAdminTenantEditComponent implements OnInit {
   protected readonly nameMax = NAME_MAX;
   protected readonly slugMax = SLUG_MAX;
   protected readonly allStatuses = ALL_STATUSES;
-  protected readonly formatDate = (value: string | null) =>
-    value ? formatActivityDate(value) : '—';
+  protected readonly formatDate = formatActivityDateOrDash;
 
   protected readonly plans = signal<SubscriptionPlan[]>([]);
   protected readonly tenant = signal<Tenant | null>(null);
@@ -473,7 +472,7 @@ export class PlatformAdminTenantEditComponent implements OnInit {
       const [plans, tenant, subscription] = await Promise.all([
         this.plansService.getPlans(),
         this.tenantsService.getTenantById(id),
-        this.subsService.getSubscription(id),
+        this.subsService.getByTenantId(id),
       ]);
       this.plans.set(plans);
       this.tenant.set(tenant);

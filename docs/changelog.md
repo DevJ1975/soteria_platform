@@ -8,6 +8,89 @@ What's shipped, in reverse chronological order.
 
 ---
 
+## 2026-04-17 — Phase 12 review: billing hardening + trial banner
+
+Not committed yet at time of writing.
+
+### Correctness
+
+- **Generation counter on `SubscriptionService.refresh`.** Concurrent
+  refreshes (shell bootstrap + `billingAccessGuard` both firing) could
+  land out of order and overwrite a newer result with a staler one.
+  Added a monotonic sequence; later-generation writes drop.
+- **`startTrial` refuses on `active` paying subscriptions.** Previously
+  a single admin-panel click could downgrade a paying customer back
+  into a trial and nuke their `current_period_*` state. Now it throws
+  with a helpful message; operators can still force the transition via
+  `updateSubscription` if a situation really warrants it.
+- **`billingAccessGuard` logs refresh errors.** Still fails open (a
+  DB hiccup shouldn't lock a tenant out), but the failure is now
+  visible in devtools instead of silently swallowed.
+
+### Reusable primitives
+
+- **`@core/utils/subscription-mappers.util.ts`** owns
+  `SUBSCRIPTION_COLUMNS`, `BILLING_EVENT_COLUMNS`,
+  `mapSubscriptionRow`, `mapBillingEventRow`. Previously
+  `SubscriptionService` exported its mapper as an alias so
+  `PlatformAdminSubscriptionsService` could reuse it — now both
+  services import from a neutral location.
+- **`TrialStatusBannerComponent`** in `@shared/components` — rendered
+  once in the `AppShellComponent`, shows status-specific messaging
+  (trial countdown in final week, past-due warning, cancellation
+  date, lockout). Silent for healthy `active` subscriptions so users
+  aren't nagged.
+- **`formatActivityDateOrDash`** in `@shared/utils/date.util` —
+  replaces the `value ? formatActivityDate(value) : '—'` snippet that
+  appeared in both the billing page and the tenant-edit page.
+
+### Naming consistency
+
+- **`PlatformAdminSubscriptionsService.getSubscription` →
+  `getByTenantId`** to match `SubscriptionService.getTenantSubscription`
+  in intent (both: "fetch by tenant id").
+- Dropped the confusing `SUBSCRIPTION_SELECT_COLUMNS` alias that
+  existed purely so `PlatformAdminSubscriptionsService` could reuse
+  the same constant. Now everyone imports `SUBSCRIPTION_COLUMNS` from
+  the shared util.
+- `isSubscriptionActive()` method is now documented as an alias of
+  the `isHealthy` signal so the duplication is at least explicit.
+
+### UX
+
+- **Billing page status-specific callouts.** Previously it had one
+  generic lockout banner. Now it renders context-appropriate copy
+  for `past_due` ("Payment needs attention, update your payment
+  method") and scheduled `canceled` ("Cancellation scheduled for
+  DATE"), plus the existing lockout for no-access states.
+- **Consolidated CTAs.** Previously two "Contact sales" links
+  (lockout + separate actions card). Now a single Change-your-plan
+  card with the disabled "Upgrade (coming soon)" button and the
+  mailto side-by-side.
+
+### Docs
+
+- **`admin-guide.md` Stripe section expanded** with:
+  - Stripe event → internal action table (5 event types, matching
+    internal updates, and the `billing_events` row each produces).
+  - Concrete Edge Function shape (`create-checkout-session`,
+    `create-portal-session`, `stripe-webhook`).
+  - Secrets checklist (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`).
+  - Flags the plan-mapping column (`subscription_plans.stripe_price_id`)
+    that Phase 13 needs to add.
+
+### Not changing
+
+- **Dashboard-level banner logic.** The new `TrialStatusBannerComponent`
+  covers all `/app/*` routes already; a dedicated dashboard widget
+  would duplicate.
+- **`sync_tenant_plan_from_subscription` sweeping expired `canceled`
+  rows.** Handled client-side by `billingAccessGuard` today. A
+  scheduled job would be more correct but introduces an ops surface
+  we don't want yet.
+
+---
+
 ## 2026-04-17 — Phase 12: Billing & subscription lifecycle foundation
 
 Preparation layer for real billing. Introduces a `subscriptions`
