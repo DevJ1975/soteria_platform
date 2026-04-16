@@ -37,6 +37,8 @@ interface PlanEdits {
   name?: string;
   description?: string;
   sortOrder?: number;
+  /** Stripe Price id — empty string means "clear mapping." */
+  stripePriceId?: string;
   modules?: ReadonlySet<ModuleKey>;
 }
 
@@ -231,6 +233,29 @@ interface DraftPlan {
                   [ngModel]="editValue(row.plan.id, 'sortOrder') ?? row.plan.sortOrder"
                   (ngModelChange)="onFieldEdit(row.plan.id, 'sortOrder', $event)"
                 />
+
+                <label class="sot-label" [for]="'stripe-' + row.plan.id">
+                  Stripe price id
+                </label>
+                <div class="plan-card__stripe-field">
+                  <input
+                    [id]="'stripe-' + row.plan.id"
+                    type="text"
+                    class="sot-input"
+                    placeholder="price_..."
+                    [ngModel]="editValue(row.plan.id, 'stripePriceId') ?? row.plan.stripePriceId ?? ''"
+                    (ngModelChange)="onStripePriceEdit(row.plan.id, $event)"
+                  />
+                  @if (row.plan.stripePriceId) {
+                    <span class="plan-card__stripe-status plan-card__stripe-status--ok">
+                      Stripe-ready
+                    </span>
+                  } @else {
+                    <span class="plan-card__stripe-status plan-card__stripe-status--missing">
+                      Unmapped — checkout disabled
+                    </span>
+                  }
+                </div>
               </div>
 
               <div class="modules">
@@ -380,6 +405,18 @@ interface DraftPlan {
 
       .plan-card__num { max-width: 120px; }
 
+      .plan-card__stripe-field {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .plan-card__stripe-status {
+        font-size: var(--font-size-xs);
+        font-weight: 500;
+      }
+      .plan-card__stripe-status--ok      { color: #047857; }
+      .plan-card__stripe-status--missing { color: #92400e; }
+
       .plan-card__hint {
         margin-top: var(--space-3);
         color: var(--color-text-subtle);
@@ -519,7 +556,7 @@ export class PlatformAdminPlansListComponent implements OnInit {
   // -- Edit helpers ------------------------------------------------
 
   /** Typed accessor for a single edit field. */
-  protected editValue<K extends 'name' | 'description' | 'sortOrder'>(
+  protected editValue<K extends 'name' | 'description' | 'sortOrder' | 'stripePriceId'>(
     planId: string,
     field: K,
   ): PlanEdits[K] {
@@ -533,6 +570,7 @@ export class PlatformAdminPlansListComponent implements OnInit {
       e.name !== undefined ||
       e.description !== undefined ||
       e.sortOrder !== undefined ||
+      e.stripePriceId !== undefined ||
       e.modules !== undefined
     );
   }
@@ -563,6 +601,15 @@ export class PlatformAdminPlansListComponent implements OnInit {
   ): void {
     const coerced = field === 'sortOrder' ? Number(value) : value;
     this.patchEdits(planId, { [field]: coerced });
+  }
+
+  /**
+   * Separate method from `onFieldEdit` because the Stripe price id
+   * needs whitespace-trim handling and explicit empty-string handling
+   * (which `onFieldEdit`'s signature doesn't express naturally).
+   */
+  protected onStripePriceEdit(planId: string, value: string): void {
+    this.patchEdits(planId, { stripePriceId: value });
   }
 
   protected onModuleToggle(
@@ -598,7 +645,8 @@ export class PlatformAdminPlansListComponent implements OnInit {
       const hasMetaChange =
         pending.name !== undefined ||
         pending.description !== undefined ||
-        pending.sortOrder !== undefined;
+        pending.sortOrder !== undefined ||
+        pending.stripePriceId !== undefined;
       if (hasMetaChange) {
         await this.service.updatePlan(plan.id, {
           ...(pending.name !== undefined && { name: pending.name.trim() }),
@@ -607,6 +655,11 @@ export class PlatformAdminPlansListComponent implements OnInit {
           }),
           ...(pending.sortOrder !== undefined && {
             sortOrder: Number(pending.sortOrder),
+          }),
+          // Service coerces empty-string → null so cleared mappings
+          // drop out of the partial unique index.
+          ...(pending.stripePriceId !== undefined && {
+            stripePriceId: pending.stripePriceId,
           }),
         });
       }

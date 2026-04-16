@@ -13,6 +13,14 @@ export type SubscriptionStatus =
   | 'inactive';
 
 /**
+ * Which external provider, if any, owns this subscription's billing.
+ *   - `manual`: Soteria-internal lifecycle (trials, operator overrides).
+ *     No external billing attached.
+ *   - `stripe`: synchronized with a Stripe Subscription via webhook.
+ */
+export type BillingProvider = 'manual' | 'stripe';
+
+/**
  * Event types match the enum defined on the DB side and are
  * intentionally shaped like Stripe's — once webhook handling lands, we
  * can map a Stripe event type to one of these 1:1 without schema churn.
@@ -35,6 +43,13 @@ export interface Subscription {
   planId: string | null;
   status: SubscriptionStatus;
 
+  /**
+   * Which provider owns this row's billing lifecycle. Default
+   * `manual` for freshly-created tenants (trials); flips to `stripe`
+   * on `checkout.session.completed`.
+   */
+  billingProvider: BillingProvider;
+
   /** Populated while the tenant is in, or has been through, a trial. */
   trialStartDate: string | null;
   trialEndDate: string | null;
@@ -53,7 +68,7 @@ export interface Subscription {
   /** When the cancellation request was *made* (audit only). */
   canceledAt: string | null;
 
-  /** External provider ids — populated when Stripe integration lands. */
+  /** External provider ids — populated once Stripe Checkout completes. */
   externalCustomerId: string | null;
   externalSubscriptionId: string | null;
 

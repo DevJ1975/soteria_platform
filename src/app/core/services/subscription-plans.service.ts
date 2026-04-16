@@ -20,7 +20,7 @@ export class SubscriptionPlansService {
   async getPlans(): Promise<SubscriptionPlan[]> {
     const { data, error } = await this.supabase.client
       .from('subscription_plans')
-      .select('id, key, name, description, sort_order, is_active, created_at')
+      .select(PLAN_COLUMNS)
       .eq('is_active', true)
       .order('sort_order', { ascending: true });
     if (error) throw error;
@@ -30,7 +30,7 @@ export class SubscriptionPlansService {
   async getPlanById(id: string): Promise<SubscriptionPlan | null> {
     const { data, error } = await this.supabase.client
       .from('subscription_plans')
-      .select('id, key, name, description, sort_order, is_active, created_at')
+      .select(PLAN_COLUMNS)
       .eq('id', id)
       .maybeSingle();
     if (error) throw error;
@@ -66,6 +66,9 @@ export class SubscriptionPlansService {
   }
 }
 
+const PLAN_COLUMNS =
+  'id, key, name, description, sort_order, is_active, stripe_price_id, created_at';
+
 function mapPlanRow(row: Record<string, unknown>): SubscriptionPlan {
   return {
     id: row['id'] as string,
@@ -74,6 +77,7 @@ function mapPlanRow(row: Record<string, unknown>): SubscriptionPlan {
     description: (row['description'] as string) ?? '',
     sortOrder: (row['sort_order'] as number) ?? 0,
     isActive: (row['is_active'] as boolean) ?? true,
+    stripePriceId: (row['stripe_price_id'] as string | null) ?? null,
     createdAt: row['created_at'] as string,
   };
 }

@@ -23,6 +23,13 @@ export interface SubscriptionPlan {
   description: string;
   sortOrder: number;
   isActive: boolean;
+  /**
+   * Stripe Price id (price_XXX) mapping this plan to a Stripe Product.
+   * Null until an operator populates it via the platform-admin plan
+   * editor. The checkout-session edge function refuses to run against
+   * an unmapped plan.
+   */
+  stripePriceId: string | null;
   createdAt: string;
 }
 

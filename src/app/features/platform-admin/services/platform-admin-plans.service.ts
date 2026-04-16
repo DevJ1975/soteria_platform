@@ -8,6 +8,9 @@ import {
   UpdateSubscriptionPlanPayload,
 } from '../models/platform-admin.model';
 
+const PLAN_COLUMNS =
+  'id, key, name, description, sort_order, is_active, stripe_price_id, created_at';
+
 /**
  * Mutating access to `subscription_plans` for the platform admin area.
  *
@@ -23,7 +26,7 @@ export class PlatformAdminPlansService {
   async getPlans(): Promise<SubscriptionPlan[]> {
     const { data, error } = await this.supabase.client
       .from('subscription_plans')
-      .select('id, key, name, description, sort_order, is_active, created_at')
+      .select(PLAN_COLUMNS)
       .order('sort_order', { ascending: true });
     if (error) throw error;
     return (data ?? []).map(mapRow);
@@ -32,7 +35,7 @@ export class PlatformAdminPlansService {
   async getPlanById(id: string): Promise<SubscriptionPlan | null> {
     const { data, error } = await this.supabase.client
       .from('subscription_plans')
-      .select('id, key, name, description, sort_order, is_active, created_at')
+      .select(PLAN_COLUMNS)
       .eq('id', id)
       .maybeSingle();
     if (error) throw error;
@@ -57,8 +60,9 @@ export class PlatformAdminPlansService {
         description: payload.description ?? '',
         sort_order: payload.sortOrder ?? 0,
         is_active: payload.isActive ?? true,
+        stripe_price_id: payload.stripePriceId ?? null,
       })
-      .select('id, key, name, description, sort_order, is_active, created_at')
+      .select(PLAN_COLUMNS)
       .single();
     if (error) throw error;
     return mapRow(data);
@@ -73,12 +77,18 @@ export class PlatformAdminPlansService {
     if (payload.description !== undefined) row['description'] = payload.description;
     if (payload.sortOrder !== undefined) row['sort_order'] = payload.sortOrder;
     if (payload.isActive !== undefined) row['is_active'] = payload.isActive;
+    // Empty-string inputs from the admin form mean "clear mapping"; store
+    // as null so the `stripe_price_id IS NOT NULL` index stays tight.
+    if (payload.stripePriceId !== undefined) {
+      row['stripe_price_id'] =
+        payload.stripePriceId?.trim() ? payload.stripePriceId.trim() : null;
+    }
 
     const { data, error } = await this.supabase.client
       .from('subscription_plans')
       .update(row)
       .eq('id', id)
-      .select('id, key, name, description, sort_order, is_active, created_at')
+      .select(PLAN_COLUMNS)
       .single();
     if (error) throw error;
     return mapRow(data);
@@ -135,6 +145,7 @@ function mapRow(row: Record<string, unknown>): SubscriptionPlan {
     description: (row['description'] as string) ?? '',
     sortOrder: (row['sort_order'] as number) ?? 0,
     isActive: (row['is_active'] as boolean) ?? true,
+    stripePriceId: (row['stripe_price_id'] as string | null) ?? null,
     createdAt: row['created_at'] as string,
   };
 }

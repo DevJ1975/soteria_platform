@@ -8,6 +8,100 @@ What's shipped, in reverse chronological order.
 
 ---
 
+## 2026-04-18 — Phase 13: Stripe integration
+
+Self-serve checkout, hosted customer portal, and webhook-driven
+lifecycle sync. Slots into the Phase 12 scaffold without reshuffling
+any existing tables.
+
+### Database
+
+- **Migration `20260418120016_stripe_integration.sql`.** Adds:
+  - `subscription_plans.stripe_price_id` (text; indexed partial).
+    The bridge between our plan catalogue and Stripe Price objects.
+  - `subscriptions.billing_provider` (`manual` | `stripe` enum).
+    Default `manual` for trial rows created by the auto-provisioning
+    trigger; flips to `stripe` on the first successful Checkout.
+  - `billing_events.external_event_id` with a unique partial index
+    — webhook idempotency without a separate table.
+  - Backfill: rows that already carry `external_subscription_id`
+    promote to `billing_provider = 'stripe'`.
+
+### Edge Functions (Deno)
+
+Three functions in `supabase/functions/`:
+
+- **`create-checkout-session`** — verifies JWT → resolves tenant +
+  plan → creates a Stripe Checkout Session with tenant/plan/user ids
+  in metadata → returns the redirect URL. Refuses unmapped plans
+  with a 400 so the UI can hide them.
+- **`create-portal-session`** — resolves the tenant's Stripe
+  customer id and creates a Customer Portal session. Returns 409 if
+  no customer exists yet (tenant hasn't checked out).
+- **`stripe-webhook`** — signature-verified via
+  `constructEventAsync`. Event routing follows the map in
+  `admin-guide.md`. Idempotency via `external_event_id` with a
+  short-circuit at the top of the handler.
+
+Shared utilities in `_shared/`: CORS helpers, service-role Supabase
+client builder, authenticated JWT resolver, Stripe SDK initializer,
+status-enum flattener, and a Unix-timestamp→ISO converter.
+
+### Frontend
+
+- **`BillingActionsService`** (`@core/services`) wraps
+  `supabase.functions.invoke('create-checkout-session' | 'create-portal-session')`.
+- **`/app/billing` page** grows a real upgrade flow:
+  - If the tenant already has a Stripe customer
+    (`billing_provider === 'stripe'`) → "Manage subscription" button
+    opens the Stripe Billing Portal.
+  - Otherwise, if ≥1 plan has a mapped `stripe_price_id` → inline
+    plan selector + "Continue to Stripe →" button launches Checkout.
+  - If no plans are mapped → falls back to the "Contact sales"
+    placeholder (graceful degrade when Stripe isn't configured).
+- **Return-from-checkout handling** reads
+  `?checkout=success|cancelled` off the URL, shows a banner, and
+  clears the param so a refresh doesn't replay.
+
+### Platform admin
+
+- **Plans editor** gets a "Stripe price id" input per plan, with a
+  status badge that reads "Stripe-ready" when set or
+  "Unmapped — checkout disabled" when empty.
+- Empty-string inputs save as `NULL` so the partial unique index on
+  `stripe_price_id` stays tight.
+
+### Models
+
+- `SubscriptionPlan.stripePriceId: string | null` added to
+  `@core/models/subscription-plan.model.ts`.
+- `Subscription.billingProvider: 'manual' | 'stripe'` added to
+  `@core/models/subscription.model.ts`.
+- Plan editor payloads accept `stripePriceId?: string | null`.
+- Subscription-mappers util includes the new columns.
+
+### Docs
+
+- `admin-guide.md` Billing section now contains a complete Stripe
+  setup walkthrough: create products/prices, map them in the admin
+  panel, deploy the functions (including the
+  `--no-verify-jwt` flag for the webhook), set secrets, register
+  the webhook endpoint, test-mode walkthrough with the `4242...`
+  test card, event→action table, idempotency notes, and
+  authorization posture.
+
+### Operational notes
+
+- **This commit does not execute anything by itself.** The Stripe
+  account, products/prices, secrets, webhook endpoint, and function
+  deployment are all operator actions documented in the admin guide.
+- The existing manual lifecycle (auto-trial on tenant insert,
+  operator-driven plan/status changes via the platform-admin tenant
+  edit page) continues to work without any Stripe config — that's
+  what `billing_provider = 'manual'` is for.
+
+---
+
 ## 2026-04-17 — Phase 12 review: billing hardening + trial banner
 
 Not committed yet at time of writing.

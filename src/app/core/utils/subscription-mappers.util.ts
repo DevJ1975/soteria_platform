@@ -15,6 +15,7 @@ export const SUBSCRIPTION_COLUMNS = [
   'tenant_id',
   'plan_id',
   'status',
+  'billing_provider',
   'trial_start_date',
   'trial_end_date',
   'current_period_start',
@@ -38,6 +39,8 @@ export function mapSubscriptionRow(row: unknown): Subscription {
     tenantId: r['tenant_id'] as string,
     planId: (r['plan_id'] as string | null) ?? null,
     status: r['status'] as Subscription['status'],
+    billingProvider:
+      (r['billing_provider'] as Subscription['billingProvider']) ?? 'manual',
     trialStartDate: (r['trial_start_date'] as string | null) ?? null,
     trialEndDate: (r['trial_end_date'] as string | null) ?? null,
     currentPeriodStart: (r['current_period_start'] as string | null) ?? null,

@@ -328,57 +328,105 @@ Event types follow Stripe's shape so webhooks map 1:1 when Stripe
 integration lands. Read it via
 `BillingEventsService.getTenantEvents(tenantId)`.
 
-### Future Stripe integration
+### Stripe integration (Phase 13)
 
-The subscription schema ships with the fields a provider integration
-needs, so the Stripe phase is purely additive code (no migration):
+Three Supabase Edge Functions and a handful of DB columns bridge our
+internal subscription lifecycle to Stripe.
 
-| Field | Purpose |
-| --- | --- |
-| `subscriptions.external_customer_id` | Stripe customer id. Captured from `checkout.session.completed`. |
-| `subscriptions.external_subscription_id` | Stripe subscription id. Indexed for webhook lookups. |
-| `subscriptions.metadata` JSONB | Arbitrary provider payload — latest invoice, price id, etc. |
+| Edge Function | Trigger | Caller | Purpose |
+| --- | --- | --- | --- |
+| `create-checkout-session` | Upgrade button on `/app/billing` | Signed-in tenant | Creates a Stripe Checkout Session for the selected plan. Returns redirect URL. |
+| `create-portal-session`   | Manage-subscription button on `/app/billing` | Signed-in tenant | Creates a Stripe Billing Portal session. Returns redirect URL. |
+| `stripe-webhook`          | Stripe webhook POST | Stripe (server-to-server) | Signature-verified; maps events → subscription updates + billing_events. |
 
-#### Stripe event → internal action map
+#### Setup (one-time, per environment)
 
-| Stripe event | Internal update | Billing event |
+1. **Create a Stripe account** (or use an existing test-mode account).
+2. **Create products and prices** for each Soteria plan in the Stripe
+   dashboard. Copy each Price id (`price_XXX`).
+3. **Map prices to plans** in Soteria: go to
+   `/platform-admin/plans`, open each plan card, paste the Price id
+   into the "Stripe price id" field, Save. Unmapped plans show up
+   as "Unmapped — checkout disabled" and the upgrade flow skips
+   them.
+4. **Deploy the edge functions:**
+   ```bash
+   supabase functions deploy create-checkout-session
+   supabase functions deploy create-portal-session
+   # Webhook must skip JWT verification — Stripe's signed request
+   # is the auth.
+   supabase functions deploy stripe-webhook --no-verify-jwt
+   ```
+5. **Set secrets** (once; shared across the three functions):
+   ```bash
+   supabase secrets set STRIPE_SECRET_KEY=sk_test_...
+   supabase secrets set STRIPE_WEBHOOK_SECRET=whsec_...
+   ```
+   `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are auto-injected
+   into every Supabase edge function — you do NOT set those.
+6. **Register the webhook endpoint** in Stripe:
+   - URL: `https://<your-project>.functions.supabase.co/stripe-webhook`
+   - Events to send: `checkout.session.completed`,
+     `customer.subscription.created`,
+     `customer.subscription.updated`,
+     `customer.subscription.deleted`,
+     `invoice.payment_succeeded`,
+     `invoice.payment_failed`.
+   - Copy the signing secret (`whsec_...`) into
+     `STRIPE_WEBHOOK_SECRET` from the previous step.
+7. **Enable the Stripe Billing Portal** (Stripe Dashboard → Settings
+   → Billing → Customer portal). Pick which plans customers can
+   switch between — this is configured on Stripe, not on our side.
+
+#### Test-mode walkthrough
+
+1. Sign up a new Soteria tenant → auto-provisioned on a 14-day trial.
+2. Go to `/app/billing` → pick a plan with a mapped Price id → click
+   "Continue to Stripe →".
+3. Complete Checkout with Stripe's test card `4242 4242 4242 4242`,
+   any future expiry, any CVC.
+4. Redirected back to `/app/billing?checkout=success`. Webhook fires
+   in parallel; `subscriptions.billing_provider` flips to `stripe`,
+   `external_customer_id` and `external_subscription_id` populate.
+5. The page now shows "Manage subscription" instead of the plan
+   picker — clicking it opens the Stripe Billing Portal.
+6. Cancel from the portal → Stripe fires
+   `customer.subscription.deleted` → webhook sets status to `inactive`
+   and writes a `subscription_canceled` event.
+
+#### Event → internal action map
+
+| Stripe event | `subscriptions` update | `billing_events.event_type` |
 | --- | --- | --- |
-| `checkout.session.completed` | Populate `external_customer_id`, `external_subscription_id`. Status → `active`. | `subscription_reactivated` (or `plan_upgraded` on plan switch) |
-| `customer.subscription.updated` | Sync `status`, `current_period_*`, `cancel_at` from Stripe. | `status_changed` if status changed; `plan_upgraded` / `plan_downgraded` / `plan_changed` if price id changed. |
+| `checkout.session.completed` | Capture `external_customer_id`/`external_subscription_id`, set `billing_provider = 'stripe'`, sync status + period from the linked Subscription. | `subscription_reactivated` |
+| `customer.subscription.created/updated` | Sync status, period window, `cancel_at`, resolve `plan_id` from price id. | `plan_changed` (if plan differs), `status_changed` (if status differs), `external_sync` otherwise. |
 | `customer.subscription.deleted` | Status → `inactive`, `canceled_at = now()`. | `subscription_canceled` |
-| `invoice.payment_succeeded` | Status → `active`, advance `current_period_end`. | `status_changed` |
+| `invoice.payment_succeeded` | Fetches the subscription to refresh `status` + `current_period_end`. | `status_changed` |
 | `invoice.payment_failed` | Status → `past_due`. | `status_changed` |
 
-Stripe's status enum maps 1:1 to ours except for `incomplete` /
-`incomplete_expired` / `unpaid` — flatten those to `inactive`.
+Stripe's status enum maps to ours 1:1 except for `incomplete`,
+`incomplete_expired`, `unpaid`, `paused` — all flatten to `inactive`.
 
-#### Shape of the integration
+#### Idempotency
 
-A concrete implementation is three Supabase Edge Functions:
+Stripe retries webhook deliveries on non-2xx responses. Every event
+is recorded in `billing_events.external_event_id` with a unique
+partial index, and the webhook handler short-circuits duplicates at
+the top of the function.
 
-1. **`create-checkout-session`** — called from the tenant billing page
-   "Upgrade" button. Resolves the target plan's `stripe_price_id`
-   (new column to add in a Phase 13 migration), creates a Stripe
-   Checkout Session, returns the redirect URL.
-2. **`create-portal-session`** — called from a "Manage subscription"
-   button once the tenant has an `external_customer_id`. Creates a
-   Stripe Billing Portal session for plan/payment-method changes.
-3. **`stripe-webhook`** — public endpoint receiving Stripe webhook
-   POSTs. Verifies the signature, maps the event per the table above,
-   updates `subscriptions` + appends to `billing_events`. Uses the
-   Supabase service-role key to bypass RLS (the webhook isn't a user
-   request).
+#### Authorization
 
-Secrets to provision in Supabase before the functions run:
-
-```bash
-supabase secrets set STRIPE_SECRET_KEY=sk_test_...
-supabase secrets set STRIPE_WEBHOOK_SECRET=whsec_...
-```
-
-Plan mapping lives on `subscription_plans.stripe_price_id` (Phase 13
-adds the column). The platform-admin plan editor gains an input for
-it; the checkout function refuses to run against an unmapped plan.
+- Checkout / portal endpoints require a valid Supabase user JWT
+  (extracted from `Authorization: Bearer ...`); they resolve the
+  tenant from `user_profiles` rather than trusting client-supplied
+  ids.
+- The webhook endpoint skips JWT verification (`--no-verify-jwt`)
+  because Stripe's signed POST is the authentication — the handler
+  rejects requests whose `stripe-signature` header doesn't verify
+  against `STRIPE_WEBHOOK_SECRET`.
+- All three functions use the **service role** Supabase client so
+  they bypass RLS. Tenant users still can't read or write another
+  tenant's billing data — that path goes through the Postgres layer.
 
 ---
 

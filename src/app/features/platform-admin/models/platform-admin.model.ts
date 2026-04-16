@@ -61,6 +61,8 @@ export interface CreateSubscriptionPlanPayload {
   description?: string;
   sortOrder?: number;
   isActive?: boolean;
+  /** Optional Stripe Price id mapping. Usually set via update later. */
+  stripePriceId?: string | null;
 }
 
 export interface UpdateSubscriptionPlanPayload {
@@ -68,6 +70,11 @@ export interface UpdateSubscriptionPlanPayload {
   description?: string;
   sortOrder?: number;
   isActive?: boolean;
+  /**
+   * Stripe Price id (price_XXX) or null/empty to clear. Required
+   * before the plan can be offered via Stripe Checkout.
+   */
+  stripePriceId?: string | null;
 }
 
 
