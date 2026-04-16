@@ -102,3 +102,39 @@ export interface UpdatePlatformModulePayload {
   isCore?: boolean;
   isAvailable?: boolean;
 }
+
+
+// -- Provisioning ----------------------------------------------------------
+
+/**
+ * Full tenant-provisioning payload. One call to the `provision-tenant`
+ * Edge Function spins up the tenant, the trialing subscription
+ * (auto-created by the subscriptions trigger), a named default site,
+ * tenant_settings with mobile defaults, and invites the first admin.
+ */
+export interface ProvisionTenantPayload {
+  tenantName: string;
+  tenantSlug: string;
+  planId?: string | null;
+
+  siteName: string;
+  siteTimezone: string;
+  siteType?: string | null;
+
+  adminEmail: string;
+  adminFirstName: string;
+  adminLastName?: string;
+}
+
+/**
+ * Edge-function response. `inviteSent = false` means the tenant +
+ * site + settings landed but the invite email didn't — the operator
+ * should retry the invite from the tenant edit page.
+ */
+export interface ProvisionTenantResult {
+  tenantId: string;
+  siteId: string;
+  inviteSent: boolean;
+  invitedUserId?: string | null;
+  inviteError?: string | null;
+}

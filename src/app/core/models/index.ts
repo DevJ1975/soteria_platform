@@ -4,3 +4,5 @@ export * from './module.model';
 export * from './tenant-module.model';
 export * from './subscription-plan.model';
 export * from './subscription.model';
+export * from './site.model';
+export * from './tenant-settings.model';

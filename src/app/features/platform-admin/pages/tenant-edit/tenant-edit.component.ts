@@ -25,6 +25,7 @@ import { SubscriptionStatusBadgeComponent } from '@shared/components/subscriptio
 import { formatActivityDateOrDash } from '@shared/utils/date.util';
 import { extractErrorMessage, isUniqueViolation } from '@shared/utils/errors.util';
 
+import { ProvisioningSummaryBannerComponent } from '../../components/provisioning-summary-banner/provisioning-summary-banner.component';
 import { TenantStatusChipComponent } from '../../components/tenant-status-chip/tenant-status-chip.component';
 import { PlatformAdminPlansService } from '../../services/platform-admin-plans.service';
 import { PlatformAdminSubscriptionsService } from '../../services/platform-admin-subscriptions.service';
@@ -65,6 +66,7 @@ const ALL_STATUSES: readonly SubscriptionStatus[] = [
     PageHeaderComponent,
     TenantStatusChipComponent,
     SubscriptionStatusBadgeComponent,
+    ProvisioningSummaryBannerComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -89,6 +91,7 @@ const ALL_STATUSES: readonly SubscriptionStatus[] = [
     } @else if (!tenant()) {
       <div class="sot-alert sot-alert--error" role="alert">Tenant not found.</div>
     } @else {
+      <sot-provisioning-summary-banner [tenantId]="tenant()!.id" />
       <form class="form sot-card" [formGroup]="form" (ngSubmit)="saveDetails()" novalidate>
         <header class="form__header">
           <h2 class="form__title">Tenant details</h2>
