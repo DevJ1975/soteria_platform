@@ -9,7 +9,6 @@ import {
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
-import { TenantMember, TenantService } from '@core/services/tenant.service';
 import { EmptyStateComponent } from '@shared/components/empty-state/empty-state.component';
 import { IconComponent } from '@shared/components/icon/icon.component';
 import { PageHeaderComponent } from '@shared/components/page-header/page-header.component';
@@ -19,38 +18,33 @@ import {
 } from '@shared/utils/async-guards.util';
 import { extractErrorMessage } from '@shared/utils/errors.util';
 
-import { InspectionPriorityChipComponent } from '../../components/inspection-priority-chip/inspection-priority-chip.component';
-import { InspectionStatusChipComponent } from '../../components/inspection-status-chip/inspection-status-chip.component';
+import { EquipmentStatusChipComponent } from '../../components/equipment-status-chip/equipment-status-chip.component';
 import {
-  INSPECTION_PRIORITY_LABEL,
-  INSPECTION_STATUS_LABEL,
-  INSPECTION_TYPE_LABEL,
-  Inspection,
-  InspectionFilters,
-  InspectionPriority,
-  InspectionStatus,
-} from '../../models/inspection.model';
-import { InspectionsService } from '../../services/inspections.service';
+  EQUIPMENT_STATUS_LABEL,
+  EQUIPMENT_TYPE_LABEL,
+  Equipment,
+  EquipmentFilters,
+  EquipmentStatus,
+  EquipmentType,
+} from '../../models/equipment.model';
+import { EquipmentService } from '../../services/equipment.service';
 
 const SEARCH_DEBOUNCE_MS = 250;
 
 /**
- * Inspections list page.
+ * Equipment list page. Same patterns as inspections and corrective-actions:
+ *   - generation counter for stale-response guarding
+ *   - debounced search
+ *   - separate empty-vs-no-matches states
+ *   - clear-filters button
  *
- * Notes on a few non-obvious choices
- * ----------------------------------
- * * The list and the filter are independent signals. Filter writes kick a
- *   debounced refresh. Non-search filters refresh immediately.
- * * `refreshGeneration` is a monotonic counter used to ignore stale server
- *   responses — if a user changes filters faster than the network, the
- *   older request's result gets dropped instead of overwriting newer data.
- * * Assignee names are resolved via an in-memory map built from the tenant
- *   roster. This avoids a join on every query and keeps the service
- *   endpoint shape minimal. When the roster grows large we'll paginate it,
- *   but that's a separate problem from this page.
+ * Clicking a row's title goes to the detail page (read-mostly view with
+ * check history); Edit and Delete are explicit row actions. The detail
+ * link is the primary action because most operators spend more time
+ * reading check history than editing the equipment record itself.
  */
 @Component({
-  selector: 'sot-inspections-list',
+  selector: 'sot-equipment-list',
   standalone: true,
   imports: [
     FormsModule,
@@ -58,29 +52,28 @@ const SEARCH_DEBOUNCE_MS = 250;
     PageHeaderComponent,
     EmptyStateComponent,
     IconComponent,
-    InspectionStatusChipComponent,
-    InspectionPriorityChipComponent,
+    EquipmentStatusChipComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <sot-page-header
-      title="Inspections"
-      subtitle="Plan, assign, and track safety inspections across your sites."
+      title="Equipment"
+      subtitle="Registered assets and their check history."
     >
       <a class="sot-btn sot-btn--primary" routerLink="new">
-        <sot-icon name="clipboard-check" [size]="16" />
-        <span>New inspection</span>
+        <sot-icon name="wrench" [size]="16" />
+        <span>New equipment</span>
       </a>
     </sot-page-header>
 
     <section class="filters sot-card">
       <div class="filters__field">
-        <label class="sot-label" for="search">Search title</label>
+        <label class="sot-label" for="search">Search</label>
         <input
           id="search"
           type="text"
           class="sot-input"
-          placeholder="Type to search…"
+          placeholder="Name or asset tag…"
           [ngModel]="filters().searchText ?? ''"
           (ngModelChange)="onSearchChange($event)"
         />
@@ -102,32 +95,16 @@ const SEARCH_DEBOUNCE_MS = 250;
       </div>
 
       <div class="filters__field">
-        <label class="sot-label" for="filter-priority">Priority</label>
+        <label class="sot-label" for="filter-type">Type</label>
         <select
-          id="filter-priority"
+          id="filter-type"
           class="sot-input"
-          [ngModel]="filters().priority ?? 'all'"
-          (ngModelChange)="onFilterChange('priority', $event)"
+          [ngModel]="filters().equipmentType ?? 'all'"
+          (ngModelChange)="onFilterChange('equipmentType', $event)"
         >
-          <option value="all">All priorities</option>
-          @for (opt of priorityOptions; track opt.value) {
+          <option value="all">All types</option>
+          @for (opt of typeOptions; track opt.value) {
             <option [value]="opt.value">{{ opt.label }}</option>
-          }
-        </select>
-      </div>
-
-      <div class="filters__field">
-        <label class="sot-label" for="filter-assigned">Assigned to</label>
-        <select
-          id="filter-assigned"
-          class="sot-input"
-          [ngModel]="filters().assignedTo ?? 'all'"
-          (ngModelChange)="onFilterChange('assignedTo', $event)"
-        >
-          <option value="all">Everyone</option>
-          <option value="me">Assigned to me</option>
-          @for (m of members(); track m.id) {
-            <option [value]="m.id">{{ m.firstName }} {{ m.lastName }}</option>
           }
         </select>
       </div>
@@ -142,34 +119,32 @@ const SEARCH_DEBOUNCE_MS = 250;
     </section>
 
     @if (errorMessage()) {
-      <div class="sot-alert sot-alert--error" role="alert">
-        {{ errorMessage() }}
-      </div>
+      <div class="sot-alert sot-alert--error" role="alert">{{ errorMessage() }}</div>
     }
 
     <div class="list-meta">
       <span class="list-meta__count">
-        {{ inspections().length }}
-        {{ inspections().length === 1 ? 'inspection' : 'inspections' }}
+        {{ equipment().length }}
+        {{ equipment().length === 1 ? 'item' : 'items' }}
       </span>
       @if (loading()) {
         <span class="list-meta__loading">Refreshing…</span>
       }
     </div>
 
-    @if (loading() && inspections().length === 0) {
-      <div class="sot-state">Loading inspections…</div>
-    } @else if (inspections().length === 0 && !hasActiveFilters()) {
+    @if (loading() && equipment().length === 0) {
+      <div class="sot-state">Loading equipment…</div>
+    } @else if (equipment().length === 0 && !hasActiveFilters()) {
       <sot-empty-state
-        title="No inspections yet"
-        body="Create your first inspection to get started. You can edit and reassign it any time."
+        title="No equipment yet"
+        body="Register your first piece of equipment to start tracking pre-use checks."
       >
-        <a class="sot-btn sot-btn--primary" routerLink="new">New inspection</a>
+        <a class="sot-btn sot-btn--primary" routerLink="new">New equipment</a>
       </sot-empty-state>
-    } @else if (inspections().length === 0) {
+    } @else if (equipment().length === 0) {
       <sot-empty-state
         title="No matches"
-        body="No inspections match the current filters. Try clearing them or broadening your search."
+        body="No equipment matches the current filters. Try clearing them or broadening your search."
       >
         <button type="button" class="sot-btn sot-btn--ghost" (click)="clearFilters()">
           Clear filters
@@ -180,42 +155,45 @@ const SEARCH_DEBOUNCE_MS = 250;
         <table class="table">
           <thead>
             <tr>
-              <th scope="col">Title</th>
+              <th scope="col">Name</th>
+              <th scope="col">Asset tag</th>
               <th scope="col">Type</th>
               <th scope="col">Status</th>
-              <th scope="col">Priority</th>
-              <th scope="col">Assignee</th>
-              <th scope="col">Due date</th>
               <th scope="col" class="table__actions-col">Actions</th>
             </tr>
           </thead>
           <tbody>
-            @for (inspection of inspections(); track inspection.id) {
+            @for (item of equipment(); track item.id) {
               <tr>
                 <td>
-                  <a class="table__title-link" [routerLink]="[inspection.id, 'edit']">
-                    {{ inspection.title }}
+                  <a class="table__title-link" [routerLink]="[item.id]">
+                    {{ item.name }}
                   </a>
-                  @if (inspection.description) {
-                    <p class="table__description">{{ inspection.description }}</p>
+                  @if (item.manufacturer || item.model) {
+                    <p class="table__sub">
+                      {{ item.manufacturer }}{{ item.manufacturer && item.model ? ' · ' : '' }}{{ item.model }}
+                    </p>
                   }
                 </td>
-                <td>{{ typeLabel(inspection) }}</td>
-                <td><sot-inspection-status-chip [status]="inspection.status" /></td>
-                <td><sot-inspection-priority-chip [priority]="inspection.priority" /></td>
-                <td>{{ assigneeName(inspection.assignedTo) }}</td>
-                <td>{{ inspection.dueDate ?? '—' }}</td>
+                <td class="table__mono">{{ item.assetTag }}</td>
+                <td>{{ typeLabel(item) }}</td>
+                <td><sot-equipment-status-chip [status]="item.status" /></td>
                 <td class="table__actions">
                   <a
                     class="sot-btn sot-btn--ghost table__btn"
-                    [routerLink]="[inspection.id, 'edit']"
-                    aria-label="Edit inspection"
+                    [routerLink]="[item.id]"
+                    aria-label="View equipment"
+                  >View</a>
+                  <a
+                    class="sot-btn sot-btn--ghost table__btn"
+                    [routerLink]="[item.id, 'edit']"
+                    aria-label="Edit equipment"
                   >Edit</a>
                   <button
                     type="button"
                     class="sot-btn sot-btn--ghost table__btn table__btn--danger"
-                    (click)="confirmDelete(inspection)"
-                    aria-label="Delete inspection"
+                    (click)="confirmDelete(item)"
+                    aria-label="Delete equipment"
                   >Delete</button>
                 </td>
               </tr>
@@ -234,10 +212,7 @@ const SEARCH_DEBOUNCE_MS = 250;
         margin-bottom: var(--space-4);
       }
       .filters__field { display: flex; flex-direction: column; }
-      .filters__clear {
-        display: flex;
-        align-items: flex-end;
-      }
+      .filters__clear { display: flex; align-items: flex-end; }
 
       .list-meta {
         display: flex;
@@ -273,7 +248,6 @@ const SEARCH_DEBOUNCE_MS = 250;
         border-bottom: 1px solid var(--color-border);
         vertical-align: middle;
       }
-
       .table tbody tr:last-child td { border-bottom: none; }
       .table tbody tr:hover { background: var(--color-surface-muted); }
 
@@ -286,14 +260,15 @@ const SEARCH_DEBOUNCE_MS = 250;
         text-decoration: underline;
       }
 
-      .table__description {
+      .table__sub {
         color: var(--color-text-subtle);
         font-size: var(--font-size-sm);
         margin-top: 2px;
-        max-width: 48ch;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+      }
+
+      .table__mono {
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+        font-size: var(--font-size-sm);
       }
 
       .table__actions-col { width: 1%; white-space: nowrap; text-align: right; }
@@ -305,63 +280,43 @@ const SEARCH_DEBOUNCE_MS = 250;
     `,
   ],
 })
-export class InspectionsListComponent implements OnInit {
-  private readonly service = inject(InspectionsService);
-  private readonly tenants = inject(TenantService);
+export class EquipmentListComponent implements OnInit {
+  private readonly service = inject(EquipmentService);
   private readonly guard = createGenerationGuard();
   private readonly debounceSearch = createDebouncer(SEARCH_DEBOUNCE_MS);
 
-  protected readonly inspections = signal<Inspection[]>([]);
-  protected readonly members = signal<TenantMember[]>([]);
+  protected readonly equipment = signal<Equipment[]>([]);
   protected readonly loading = signal(false);
   protected readonly errorMessage = signal<string | null>(null);
-  protected readonly filters = signal<InspectionFilters>({});
+  protected readonly filters = signal<EquipmentFilters>({});
 
-  /** True if any filter is active; powers the "Clear filters" affordance. */
   protected readonly hasActiveFilters = computed(() => {
     const f = this.filters();
     return !!(
       (f.status && f.status !== 'all') ||
-      (f.priority && f.priority !== 'all') ||
-      (f.assignedTo && f.assignedTo !== 'all') ||
+      (f.equipmentType && f.equipmentType !== 'all') ||
       f.searchText?.trim()
     );
   });
 
-  /** id → "First Last" lookup built once per roster load. */
-  private readonly memberLookup = computed(() => {
-    const map = new Map<string, string>();
-    for (const m of this.members()) {
-      map.set(m.id, `${m.firstName} ${m.lastName}`.trim() || m.email);
-    }
-    return map;
-  });
-
   protected readonly statusOptions = (
-    Object.keys(INSPECTION_STATUS_LABEL) as InspectionStatus[]
-  ).map((value) => ({ value, label: INSPECTION_STATUS_LABEL[value] }));
+    Object.keys(EQUIPMENT_STATUS_LABEL) as EquipmentStatus[]
+  ).map((value) => ({ value, label: EQUIPMENT_STATUS_LABEL[value] }));
 
-  protected readonly priorityOptions = (
-    Object.keys(INSPECTION_PRIORITY_LABEL) as InspectionPriority[]
-  ).map((value) => ({ value, label: INSPECTION_PRIORITY_LABEL[value] }));
+  protected readonly typeOptions = (
+    Object.keys(EQUIPMENT_TYPE_LABEL) as EquipmentType[]
+  ).map((value) => ({ value, label: EQUIPMENT_TYPE_LABEL[value] }));
 
-  protected readonly typeLabel = (i: Inspection): string =>
-    INSPECTION_TYPE_LABEL[i.inspectionType] ?? i.inspectionType;
-
-  protected readonly assigneeName = (id: string | null): string =>
-    id ? this.memberLookup().get(id) ?? 'Unknown' : 'Unassigned';
+  protected readonly typeLabel = (item: Equipment): string =>
+    EQUIPMENT_TYPE_LABEL[item.equipmentType] ?? item.equipmentType;
 
   async ngOnInit(): Promise<void> {
-    // Fire the roster load in parallel with the first refresh — users see
-    // the table render before the assignee names resolve, but that's fine:
-    // assignee cells show 'Unknown' briefly and then update.
-    void this.tenants.getTenantMembers().then((rows) => this.members.set(rows));
     await this.refresh();
   }
 
-  protected onFilterChange<K extends keyof InspectionFilters>(
+  protected onFilterChange<K extends keyof EquipmentFilters>(
     key: K,
-    value: InspectionFilters[K],
+    value: EquipmentFilters[K],
   ): void {
     this.filters.update((f) => ({ ...f, [key]: value }));
     void this.refresh();
@@ -377,15 +332,12 @@ export class InspectionsListComponent implements OnInit {
     void this.refresh();
   }
 
-  protected async confirmDelete(inspection: Inspection): Promise<void> {
-    const ok = window.confirm(
-      `Delete "${inspection.title}"? This cannot be undone.`,
-    );
+  protected async confirmDelete(item: Equipment): Promise<void> {
+    const ok = window.confirm(`Delete "${item.name}"? This cannot be undone.`);
     if (!ok) return;
-
     try {
-      await this.service.deleteInspection(inspection.id);
-      this.inspections.update((list) => list.filter((r) => r.id !== inspection.id));
+      await this.service.deleteEquipment(item.id);
+      this.equipment.update((list) => list.filter((r) => r.id !== item.id));
     } catch (err) {
       this.errorMessage.set(extractErrorMessage(err));
     }
@@ -396,9 +348,9 @@ export class InspectionsListComponent implements OnInit {
     this.loading.set(true);
     this.errorMessage.set(null);
     try {
-      const rows = await this.service.getInspections(this.filters());
-      if (!this.guard.isCurrent(gen)) return; // stale response; ignore
-      this.inspections.set(rows);
+      const rows = await this.service.getEquipment(this.filters());
+      if (!this.guard.isCurrent(gen)) return;
+      this.equipment.set(rows);
     } catch (err) {
       if (!this.guard.isCurrent(gen)) return;
       this.errorMessage.set(extractErrorMessage(err));

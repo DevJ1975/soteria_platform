@@ -266,12 +266,18 @@ export class CorrectiveActionFormComponent implements OnInit {
     dueDate: this.fb.control<string | null>(null),
   });
 
+  // Guards against re-hydrating the form on every `initialValue` signal
+  // change. Without it, the effect would fire after a successful save
+  // (when the page re-sets `inspection` to the server's echo) and wipe
+  // any edits the user has started since. We patch only when the
+  // incoming entity's id differs from what we last patched.
+  private readonly lastPatchedId = signal<string | null>(null);
+
   constructor() {
-    // Hydrate from either a full initialValue or just an inspection id.
-    // `initialValue` wins when both are set.
     effect(() => {
       const initial = this.initialValue();
       if (initial) {
+        if (initial.id === this.lastPatchedId()) return;
         this.form.patchValue({
           title: initial.title,
           description: initial.description,
@@ -281,10 +287,13 @@ export class CorrectiveActionFormComponent implements OnInit {
           assignedTo: initial.assignedTo,
           dueDate: initial.dueDate,
         });
+        this.lastPatchedId.set(initial.id);
         return;
       }
+      // No full initialValue yet — seed the inspection dropdown from the
+      // "from inspection context" preset, but only once.
       const preset = this.initialInspectionId();
-      if (preset) {
+      if (preset && this.form.controls.inspectionId.pristine) {
         this.form.patchValue({ inspectionId: preset });
       }
     });

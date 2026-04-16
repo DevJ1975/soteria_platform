@@ -2,7 +2,6 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
-  DestroyRef,
   inject,
   OnInit,
   signal,
@@ -14,6 +13,10 @@ import { TenantMember, TenantService } from '@core/services/tenant.service';
 import { EmptyStateComponent } from '@shared/components/empty-state/empty-state.component';
 import { IconComponent } from '@shared/components/icon/icon.component';
 import { PageHeaderComponent } from '@shared/components/page-header/page-header.component';
+import {
+  createDebouncer,
+  createGenerationGuard,
+} from '@shared/utils/async-guards.util';
 import { extractErrorMessage } from '@shared/utils/errors.util';
 
 import { CorrectiveActionPriorityChipComponent } from '../../components/corrective-action-priority-chip/corrective-action-priority-chip.component';
@@ -245,8 +248,6 @@ const SEARCH_DEBOUNCE_MS = 250;
       .list-meta__count { font-weight: 500; color: var(--color-text); }
       .list-meta__loading { color: var(--color-text-subtle); font-style: italic; }
 
-      .table-card { padding: 0; overflow: hidden; }
-
       .table {
         width: 100%;
         border-collapse: collapse;
@@ -308,7 +309,8 @@ const SEARCH_DEBOUNCE_MS = 250;
 export class CorrectiveActionsListComponent implements OnInit {
   private readonly service = inject(CorrectiveActionsService);
   private readonly tenants = inject(TenantService);
-  private readonly destroyRef = inject(DestroyRef);
+  private readonly guard = createGenerationGuard();
+  private readonly debounceSearch = createDebouncer(SEARCH_DEBOUNCE_MS);
 
   protected readonly actions = signal<CorrectiveAction[]>([]);
   protected readonly members = signal<TenantMember[]>([]);
@@ -345,15 +347,6 @@ export class CorrectiveActionsListComponent implements OnInit {
   protected readonly assigneeName = (id: string | null): string =>
     id ? this.memberLookup().get(id) ?? 'Unknown' : 'Unassigned';
 
-  private refreshGeneration = 0;
-  private searchDebounce: ReturnType<typeof setTimeout> | null = null;
-
-  constructor() {
-    this.destroyRef.onDestroy(() => {
-      if (this.searchDebounce) clearTimeout(this.searchDebounce);
-    });
-  }
-
   async ngOnInit(): Promise<void> {
     void this.tenants.getTenantMembers().then((rows) => this.members.set(rows));
     await this.refresh();
@@ -369,8 +362,7 @@ export class CorrectiveActionsListComponent implements OnInit {
 
   protected onSearchChange(value: string): void {
     this.filters.update((f) => ({ ...f, searchText: value }));
-    if (this.searchDebounce) clearTimeout(this.searchDebounce);
-    this.searchDebounce = setTimeout(() => void this.refresh(), SEARCH_DEBOUNCE_MS);
+    this.debounceSearch(() => void this.refresh());
   }
 
   protected clearFilters(): void {
@@ -390,18 +382,18 @@ export class CorrectiveActionsListComponent implements OnInit {
   }
 
   private async refresh(): Promise<void> {
-    const generation = ++this.refreshGeneration;
+    const gen = this.guard.next();
     this.loading.set(true);
     this.errorMessage.set(null);
     try {
       const rows = await this.service.getCorrectiveActions(this.filters());
-      if (generation !== this.refreshGeneration) return;
+      if (!this.guard.isCurrent(gen)) return;
       this.actions.set(rows);
     } catch (err) {
-      if (generation !== this.refreshGeneration) return;
+      if (!this.guard.isCurrent(gen)) return;
       this.errorMessage.set(extractErrorMessage(err));
     } finally {
-      if (generation === this.refreshGeneration) this.loading.set(false);
+      if (this.guard.isCurrent(gen)) this.loading.set(false);
     }
   }
 }

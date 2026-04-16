@@ -265,3 +265,15 @@ button,
   border: 1px dashed var(--color-border-strong);
   border-radius: var(--radius-lg);
 }
+
+/**
+ * Wraps a <table> inside a .sot-card so the card keeps its rounded edges
+ * while the table can scroll horizontally on narrow viewports instead of
+ * overflowing the page. Used by every list page (inspections, corrective
+ * actions, equipment).
+ */
+.table-card {
+  padding: 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}

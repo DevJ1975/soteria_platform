@@ -46,11 +46,11 @@ export const APP_ROUTES: Routes = [
           ),
       },
       {
-        path: 'equipment-checks',
+        path: 'equipment',
         canActivate: [moduleGuard('equipment_checks')],
         loadChildren: () =>
-          import('./features/equipment-checks/equipment-checks.routes').then(
-            (m) => m.EQUIPMENT_CHECKS_ROUTES,
+          import('./features/equipment/equipment.routes').then(
+            (m) => m.EQUIPMENT_ROUTES,
           ),
       },
       {

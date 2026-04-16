@@ -8,6 +8,117 @@ What's shipped, in reverse chronological order.
 
 ---
 
+## 2026-04-16 — Phase 5: Equipment + Equipment Checks
+
+Not committed yet at time of writing.
+
+### Equipment module (third real feature)
+
+- SQL migration [`20260416120005_equipment.sql`](../supabase/migrations/20260416120005_equipment.sql):
+  - `equipment_status` enum (`active | maintenance | out_of_service | retired`).
+  - `equipment` table with per-tenant case-insensitive unique `asset_tag`
+    index (operators often scan tags — "FL-01" and "fl-01" should be the
+    same asset).
+  - RLS scopes reads to tenant members; create / update / delete restricted
+    to staff (admin/supervisor), with delete additionally gated to admins
+    only so workers can't remove assets from the register.
+- SQL migration [`20260416120006_equipment_checks.sql`](../supabase/migrations/20260416120006_equipment_checks.sql):
+  - `equipment_check_status` enum (`pass | fail | needs_attention`).
+  - `equipment_checks` table with `tenant_id` denormalized alongside
+    `equipment_id`. A `before insert or update` trigger enforces that
+    `equipment_checks.tenant_id` equals `equipment.tenant_id` so the
+    denormalization can't drift and cross-tenant linkage is blocked
+    even if FK checks (which bypass RLS) would otherwise allow it.
+  - Insert policy forces `performed_by = auth.uid()` — no ghost-recording
+    on behalf of another user.
+  - `performed_by` is intentionally absent from the service update
+    shape so the original performer is immutable.
+- Reusable components:
+  - `EquipmentFormComponent` — typed reactive form with required markers
+    and max-length caps, last-patched-id guard against re-hydration wipe.
+  - `EquipmentStatusChipComponent` / `EquipmentCheckStatusChipComponent`.
+  - `EquipmentCheckFormComponent` — mobile-first segmented status control
+    (Pass / Needs attention / Fail), datetime-local for backdated checks.
+  - `EquipmentChecksPanelComponent` — reusable panel that loads check
+    history for one equipment and deep-links "Record check".
+- Pages: `/app/equipment` (list) · `new` · `:id` (detail with check panel)
+  · `:id/edit` · `:id/checks/new` (record a check).
+- Service shapes a `getActionableCountByEquipment()` query for the future
+  "N open issues" badge on the equipment list.
+
+### Routing / module naming refactor
+
+- Feature folder renamed `features/equipment-checks/` → `features/equipment/`
+  because the module now owns both assets and their check history; the old
+  name was only half the story.
+- Route changed from `/app/equipment-checks` → `/app/equipment` (with
+  nested `/:id/checks/new`).
+- Sidebar label updated from "Equipment Checks" → "Equipment".
+- **DB module key unchanged** — `tenant_modules.module_key` stays
+  `equipment_checks`. Renaming the key would be a breaking DB migration
+  for zero functional benefit. Only user-visible and developer-visible
+  names changed.
+
+### Carryover from previous review pass
+
+- `.table-card` utility class moved to global styles with `overflow-x: auto`
+  so tables scroll horizontally on narrow viewports instead of overflowing
+  the page. Per-component duplicates removed from all three list pages.
+
+---
+
+## 2026-04-16 — Phase 4 review: CA hardening
+
+Not committed yet at time of writing. Ships alongside Phase 5.
+
+### Cross-tenant guard on corrective_actions.inspection_id
+
+- Migration [`20260416120004_corrective_actions_cross_tenant_guard.sql`](../supabase/migrations/20260416120004_corrective_actions_cross_tenant_guard.sql).
+- Problem: FK checks run as superuser and bypass RLS. A client with a
+  stolen UUID could theoretically insert a CA pointing at another tenant's
+  inspection; the join on read would hide it but the orphan row would
+  exist.
+- Fix: `security definer` trigger that rejects any insert/update where
+  the linked inspection's tenant differs from the CA's tenant.
+
+### Completed_at logic fix
+
+- Previous logic stamped `now()` on any terminal status transition. Going
+  Completed → Verified therefore overwrote the original completion time
+  with the verification time — information loss.
+- New rule: TO `completed` stamps now; TO `verified` preserves existing
+  completed_at (returns `undefined` sentinel so the sparse PATCH omits the
+  key entirely rather than letting JSON coerce to null); any other status
+  clears it.
+- Documented the known limitation: a direct in_progress→verified jump
+  leaves completed_at null. A dedicated `verified_at` column plus a DB
+  trigger will resolve this properly in a later pass.
+
+### Re-hydration guard on reactive forms
+
+- `InspectionFormComponent` and `CorrectiveActionFormComponent` both
+  patched from `initialValue` every time the signal changed — including
+  after a successful save, which would wipe any edits the user had
+  started in the meantime.
+- Fix: a `lastPatchedId` signal records the id of the last entity
+  hydrated. The effect only patches when the incoming id differs.
+
+### Shared async utilities
+
+- New [src/app/shared/utils/async-guards.util.ts](../src/app/shared/utils/async-guards.util.ts)
+  with `createGenerationGuard()` and `createDebouncer()` factories.
+- Generation-counter pattern was duplicated across inspections list,
+  corrective actions list, and the corrective actions panel. Now one
+  implementation, three callers.
+- Debounce pattern was duplicated across both list pages. Same.
+
+### Minor
+
+- Dropped an `OPEN_CORRECTIVE_ACTION_STATUSES as unknown as string[]`
+  cast in favor of `[...OPEN_CORRECTIVE_ACTION_STATUSES]`.
+
+---
+
 ## 2026-04-16 — Phase 4: Corrective Actions + inspection linkage
 
 Not committed yet at time of writing.
@@ -195,17 +306,22 @@ Shipped in commit [`54ebd83`](https://github.com/DevJ1975/soteria_platform/commi
 
 Nothing dated yet. Likely next increments:
 
-- **Open-actions badge on the inspections list** — surface
-  `CorrectiveActionsService.getOpenCountByInspection` in the list page
-  so users see "3 open" next to each inspection at a glance.
-- **Equipment Checks v1** — first real implementation of the third
-  module, completing the placeholder → real module transition.
+- **Failed-check → corrective-action flow** — on a failed or
+  needs-attention check, surface a "Create corrective action" button
+  that deep-links to the CA form with the equipment + check pre-filled.
+  The CA schema would gain an optional `equipment_check_id` FK
+  (mirroring the existing `inspection_id` pattern). Exercises the
+  cross-module linkage the platform was designed for.
+- **Open-issues badges on list pages** — surface
+  `CorrectiveActionsService.getOpenCountByInspection` on the inspection
+  list, and `EquipmentChecksService.getActionableCountByEquipment` on
+  the equipment list. Service methods already exist.
 - **Admin UI** — web forms for toggling modules and changing user roles
   (replaces the SQL-only workflow).
 - **Invite flow** — admins add teammates by email; the trigger attaches
   them to the existing tenant instead of creating a new one.
 - **Inspection detail view** — read-only page at `/app/inspections/:id`
-  with activity timeline and quick-action buttons.
+  mirroring the equipment detail page pattern.
 - **Role-based UI** — hide controls the current role can't use (delete
   buttons for workers, etc.), backed by the RLS policies already in
   place.

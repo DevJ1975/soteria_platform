@@ -255,21 +255,28 @@ export class InspectionFormComponent implements OnInit {
     dueDate: this.fb.control<string | null>(null),
   });
 
+  // Guards against re-hydrating the form on every `initialValue` change.
+  // Without it, the effect would fire after a successful save (when the
+  // page sets `inspection` to the server's echo) and wipe any edits the
+  // user has started since. We patch only when the incoming entity's id
+  // differs from what we last patched.
+  private readonly lastPatchedId = signal<string | null>(null);
+
   constructor() {
-    // Hydrate whenever the host swaps in a different inspection.
     effect(() => {
       const initial = this.initialValue();
-      if (initial) {
-        this.form.patchValue({
-          title: initial.title,
-          description: initial.description,
-          inspectionType: initial.inspectionType,
-          priority: initial.priority,
-          status: initial.status,
-          assignedTo: initial.assignedTo,
-          dueDate: initial.dueDate,
-        });
-      }
+      if (!initial) return;
+      if (initial.id === this.lastPatchedId()) return;
+      this.form.patchValue({
+        title: initial.title,
+        description: initial.description,
+        inspectionType: initial.inspectionType,
+        priority: initial.priority,
+        status: initial.status,
+        assignedTo: initial.assignedTo,
+        dueDate: initial.dueDate,
+      });
+      this.lastPatchedId.set(initial.id);
     });
   }
 

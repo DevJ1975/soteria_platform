@@ -7,6 +7,7 @@ import { escapeIlikePattern } from '@shared/utils/errors.util';
 import {
   CorrectiveAction,
   CorrectiveActionFilters,
+  CorrectiveActionStatus,
   CreateCorrectiveActionPayload,
   OPEN_CORRECTIVE_ACTION_STATUSES,
   UpdateCorrectiveActionPayload,
@@ -111,7 +112,7 @@ export class CorrectiveActionsService {
       .select('*', { count: 'exact', head: true })
       .eq('tenant_id', tenantId)
       .eq('inspection_id', inspectionId)
-      .in('status', OPEN_CORRECTIVE_ACTION_STATUSES as unknown as string[]);
+      .in('status', [...OPEN_CORRECTIVE_ACTION_STATUSES]);
     if (error) throw error;
     return count ?? 0;
   }
@@ -123,8 +124,10 @@ export class CorrectiveActionsService {
     const userId = this.auth.session()?.user.id;
     if (!userId) throw new Error('Not authenticated.');
 
-    // Parallel to inspections: if the caller creates an action already
-    // completed/verified, stamp completed_at so the audit trail is right.
+    // If the caller creates an action already in a terminal state, stamp
+    // completed_at so the audit trail is right. `verified` gets a stamp
+    // too — at creation time there's no prior "completed" timestamp to
+    // preserve, so "now" is the best we have.
     const autoCompletedAt = isTerminal(payload.status)
       ? new Date().toISOString()
       : null;
@@ -168,13 +171,25 @@ export class CorrectiveActionsService {
     if (payload.dueDate !== undefined) row['due_date'] = payload.dueDate;
     if (payload.completedAt !== undefined) row['completed_at'] = payload.completedAt;
 
-    // Derive completed_at from status transitions unless the caller set it
-    // explicitly. Terminal statuses (completed/verified) stamp now; any
-    // other transition clears the stamp.
+    // Derive completed_at from status transitions unless the caller set
+    // it explicitly. Rules:
+    //   - TO 'completed'  → stamp now()
+    //   - TO 'verified'   → leave existing completed_at untouched, so
+    //                       completed→verified preserves the original
+    //                       completion time instead of overwriting it
+    //                       with the (later) verification time.
+    //   - ANY other state → clear the stamp (no longer "done")
+    // Doing this at the service means we don't need an extra fetch to
+    // see prior state; the trade-off is that a direct in_progress→verified
+    // jump leaves completed_at null. A future `verified_at` column plus
+    // a DB trigger would let us track both moments independently.
     if (payload.status !== undefined && payload.completedAt === undefined) {
-      row['completed_at'] = isTerminal(payload.status)
-        ? new Date().toISOString()
-        : null;
+      const derived = deriveCompletedAt(payload.status);
+      // undefined means "don't touch". JSON would coerce it to null and
+      // clear the column, so we omit the key entirely.
+      if (derived !== undefined) {
+        row['completed_at'] = derived;
+      }
     }
 
     const { data, error } = await this.supabase.client
@@ -209,6 +224,19 @@ export class CorrectiveActionsService {
 /** Terminal = "work is done", for the auto-stamp rule on completed_at. */
 function isTerminal(status: CorrectiveAction['status'] | undefined): boolean {
   return status === 'completed' || status === 'verified';
+}
+
+/**
+ * completed_at rule for UPDATEs. Returns `undefined` to mean "don't touch
+ * this column" — the caller only spreads defined values into the row, so
+ * omitting preserves whatever is already in the DB.
+ */
+function deriveCompletedAt(
+  status: CorrectiveActionStatus,
+): string | null | undefined {
+  if (status === 'completed') return new Date().toISOString();
+  if (status === 'verified') return undefined; // preserve existing
+  return null; // any other state → clear
 }
 
 function mapRow(row: Record<string, unknown>): CorrectiveAction {

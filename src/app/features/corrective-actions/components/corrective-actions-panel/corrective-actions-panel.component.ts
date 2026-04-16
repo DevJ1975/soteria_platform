@@ -1,7 +1,6 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  DestroyRef,
   effect,
   inject,
   input,
@@ -9,6 +8,7 @@ import {
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
+import { createGenerationGuard } from '@shared/utils/async-guards.util';
 import { extractErrorMessage } from '@shared/utils/errors.util';
 
 import { CorrectiveActionStatusChipComponent } from '../corrective-action-status-chip/corrective-action-status-chip.component';
@@ -158,7 +158,7 @@ import { CorrectiveActionsService } from '../../services/corrective-actions.serv
 })
 export class CorrectiveActionsPanelComponent {
   private readonly service = inject(CorrectiveActionsService);
-  private readonly destroyRef = inject(DestroyRef);
+  private readonly guard = createGenerationGuard();
 
   readonly inspectionId = input.required<string>();
 
@@ -166,37 +166,27 @@ export class CorrectiveActionsPanelComponent {
   protected readonly loading = signal(false);
   protected readonly errorMessage = signal<string | null>(null);
 
-  /**
-   * Generation counter so that a rapid inspection swap doesn't leave a
-   * stale response on screen.
-   */
-  private generation = 0;
-
   constructor() {
     effect(() => {
       const id = this.inspectionId();
       if (!id) return;
       void this.refresh(id);
     });
-
-    this.destroyRef.onDestroy(() => {
-      this.generation = -1; // force any in-flight response to be ignored
-    });
   }
 
   private async refresh(inspectionId: string): Promise<void> {
-    const gen = ++this.generation;
+    const gen = this.guard.next();
     this.loading.set(true);
     this.errorMessage.set(null);
     try {
       const rows = await this.service.getCorrectiveActionsByInspection(inspectionId);
-      if (gen !== this.generation) return;
+      if (!this.guard.isCurrent(gen)) return;
       this.actions.set(rows);
     } catch (err) {
-      if (gen !== this.generation) return;
+      if (!this.guard.isCurrent(gen)) return;
       this.errorMessage.set(extractErrorMessage(err));
     } finally {
-      if (gen === this.generation) this.loading.set(false);
+      if (this.guard.isCurrent(gen)) this.loading.set(false);
     }
   }
 }
