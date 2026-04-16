@@ -8,18 +8,18 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
-import { AuthService } from '@core/services/auth.service';
-import { ModuleRegistryService } from '@core/services/module-registry.service';
-import {
-  MODULE_CATALOGUE,
-} from '@core/services/module-registry.service';
-import { SubscriptionPlansService } from '@core/services/subscription-plans.service';
-import { TenantPlanService } from '@core/services/tenant-plan.service';
 import {
   ModuleKey,
   SubscriptionPlan,
   TenantModuleAccess,
 } from '@core/models';
+import { AuthService } from '@core/services/auth.service';
+import {
+  MODULE_CATALOGUE,
+  ModuleRegistryService,
+} from '@core/services/module-registry.service';
+import { SubscriptionPlansService } from '@core/services/subscription-plans.service';
+import { TenantPlanService } from '@core/services/tenant-plan.service';
 import { PageHeaderComponent } from '@shared/components/page-header/page-header.component';
 import { extractErrorMessage } from '@shared/utils/errors.util';
 
@@ -70,6 +70,14 @@ import { extractErrorMessage } from '@shared/utils/errors.util';
         <p class="plan-card__desc">
           {{ currentPlan()?.description ?? 'Select a plan to see its default modules.' }}
         </p>
+        @if (currentPlanIncludedModules().length > 0) {
+          <div class="plan-card__modules">
+            <span class="plan-card__modules-label">Included:</span>
+            @for (name of currentPlanIncludedModules(); track name) {
+              <span class="plan-card__chip">{{ name }}</span>
+            }
+          </div>
+        }
         @if (savingPlan()) {
           <p class="plan-card__status">Saving…</p>
         }
@@ -175,6 +183,32 @@ import { extractErrorMessage } from '@shared/utils/errors.util';
         margin-top: var(--space-2);
       }
 
+      .plan-card__modules {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: var(--space-2);
+        margin-top: var(--space-3);
+      }
+
+      .plan-card__modules-label {
+        font-size: var(--font-size-sm);
+        color: var(--color-text-subtle);
+        font-weight: 500;
+      }
+
+      .plan-card__chip {
+        display: inline-flex;
+        align-items: center;
+        padding: 3px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 600;
+        background: var(--color-primary-soft);
+        color: var(--color-primary-hover);
+        border: 1px solid #bfdbfe;
+      }
+
       .table-card { padding: 0; }
 
       .table-card__header {
@@ -273,6 +307,25 @@ export class TenantModulesComponent implements OnInit {
     const id = this.currentPlanId();
     if (!id) return null;
     return this.plans().find((p) => p.id === id) ?? null;
+  });
+
+  /**
+   * Display names of the modules included in the currently-selected
+   * plan. Derived from the resolved access map — an entry whose
+   * `planDefault = true` is in the plan, regardless of override state.
+   * Sorted by the catalogue's display order for consistency with the
+   * table below.
+   */
+  protected readonly currentPlanIncludedModules = computed<readonly string[]>(() => {
+    if (!this.currentPlanId()) return [];
+    return Array.from(this.registry.access().values())
+      .filter((a) => a.planDefault)
+      .map((a) => ({
+        name: MODULE_CATALOGUE[a.moduleKey]?.name ?? a.moduleKey,
+        sort: MODULE_CATALOGUE[a.moduleKey]?.sortOrder ?? 999,
+      }))
+      .sort((a, b) => a.sort - b.sort)
+      .map((x) => x.name);
   });
 
   /** Rows for the access table. Derived from the registry's resolved access. */

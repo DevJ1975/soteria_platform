@@ -65,10 +65,3 @@ export interface TenantModuleAccess {
   effective: boolean;                      // the final truth — what the app uses
 }
 
-/** Summary of a tenant's plan + the count of included / overridden modules. */
-export interface TenantPlanSummary {
-  plan: SubscriptionPlan | null;
-  includedModuleKeys: readonly ModuleKey[];
-  overrideCount: number;
-  effectiveModuleKeys: readonly ModuleKey[];
-}

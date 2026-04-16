@@ -116,6 +116,16 @@ export class ModuleRegistryService {
   private readonly _access = signal<ReadonlyMap<ModuleKey, TenantModuleAccess>>(new Map());
   private readonly _loading = signal(false);
 
+  /**
+   * Monotonic counter guarding against out-of-order responses from
+   * concurrent `resolveAccess` calls. The effect fires on tenant
+   * change; `refresh()` fires from the settings page after each
+   * mutation. If an admin flips several overrides quickly, later
+   * response can arrive before an earlier one — the guard discards
+   * any result whose generation isn't current.
+   */
+  private resolveGeneration = 0;
+
   readonly enabledKeys = this._enabledKeys.asReadonly();
   readonly access = this._access.asReadonly();
   readonly loading = this._loading.asReadonly();
@@ -170,68 +180,78 @@ export class ModuleRegistryService {
       return;
     }
 
+    const gen = ++this.resolveGeneration;
     this._loading.set(true);
 
-    // Pull everything we need in parallel. Three round-trips, all tiny.
-    const [allModulesResult, planIdResult, overridesResult] = await Promise.all([
-      this.supabase.client.from('modules').select('key, is_core, is_available'),
-      this.tenantPlan.getTenantPlanId(tenantId),
-      this.tenantPlan.getTenantModuleOverrides(tenantId),
-    ]);
+    try {
+      // Pull everything we need in parallel. Three round-trips, all tiny.
+      const [allModulesResult, planId, overrides] = await Promise.all([
+        this.supabase.client.from('modules').select('key, is_core, is_available'),
+        this.tenantPlan.getTenantPlanId(tenantId),
+        this.tenantPlan.getTenantModuleOverrides(tenantId),
+      ]);
 
-    if (allModulesResult.error) {
+      // Stale-response guard. If another resolveAccess call has
+      // started, its result will win — we drop ours silently.
+      if (gen !== this.resolveGeneration) return;
+
+      if (allModulesResult.error) throw allModulesResult.error;
+
+      const allModules = (allModulesResult.data ?? []) as Array<{
+        key: ModuleKey;
+        is_core: boolean;
+        is_available: boolean;
+      }>;
+
+      const planModuleKeys = planId
+        ? new Set(await this.plans.getPlanModuleKeys(planId))
+        : new Set<ModuleKey>();
+
+      if (gen !== this.resolveGeneration) return;
+
+      const overrideMap = new Map<ModuleKey, boolean>();
+      for (const o of overrides) {
+        overrideMap.set(o.moduleKey, o.isEnabled);
+      }
+
+      const access = new Map<ModuleKey, TenantModuleAccess>();
+      const enabledSet = new Set<ModuleKey>();
+
+      for (const m of allModules) {
+        if (!m.is_available) continue;
+
+        const planDefault = planModuleKeys.has(m.key);
+        const override = overrideMap.has(m.key)
+          ? { isEnabled: overrideMap.get(m.key)! }
+          : null;
+        const effective = m.is_core
+          ? true
+          : override
+          ? override.isEnabled
+          : planDefault;
+
+        access.set(m.key, {
+          moduleKey: m.key,
+          isCore: m.is_core,
+          planDefault,
+          override,
+          effective,
+        });
+
+        if (effective) enabledSet.add(m.key);
+      }
+
+      this._access.set(access);
+      this._enabledKeys.set(enabledSet);
+    } catch (err) {
+      // Swallow after logging so the effect callback doesn't drop an
+      // unhandled rejection. `refresh()` callers get a resolved
+      // promise — they can check `loading` or `access` for state.
       // eslint-disable-next-line no-console
-      console.error('[Soteria] Failed to load module catalogue', allModulesResult.error);
-      this._loading.set(false);
-      return;
+      console.error('[Soteria] Failed to resolve module access', err);
+    } finally {
+      if (gen === this.resolveGeneration) this._loading.set(false);
     }
-
-    const allModules = (allModulesResult.data ?? []) as Array<{
-      key: ModuleKey;
-      is_core: boolean;
-      is_available: boolean;
-    }>;
-
-    const planId = planIdResult;
-    const planModuleKeys = planId
-      ? new Set(await this.plans.getPlanModuleKeys(planId))
-      : new Set<ModuleKey>();
-
-    const overrideMap = new Map<ModuleKey, boolean>();
-    for (const o of overridesResult) {
-      overrideMap.set(o.moduleKey, o.isEnabled);
-    }
-
-    const access = new Map<ModuleKey, TenantModuleAccess>();
-    const enabledSet = new Set<ModuleKey>();
-
-    for (const m of allModules) {
-      if (!m.is_available) continue;
-
-      const planDefault = planModuleKeys.has(m.key);
-      const override = overrideMap.has(m.key)
-        ? { isEnabled: overrideMap.get(m.key)! }
-        : null;
-      const effective = m.is_core
-        ? true
-        : override
-        ? override.isEnabled
-        : planDefault;
-
-      access.set(m.key, {
-        moduleKey: m.key,
-        isCore: m.is_core,
-        planDefault,
-        override,
-        effective,
-      });
-
-      if (effective) enabledSet.add(m.key);
-    }
-
-    this._access.set(access);
-    this._enabledKeys.set(enabledSet);
-    this._loading.set(false);
   }
 }
 

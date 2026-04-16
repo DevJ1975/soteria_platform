@@ -8,9 +8,54 @@ What's shipped, in reverse chronological order.
 
 ---
 
-## 2026-04-16 — Phase 10: Module toggles + tenant plan management
+## 2026-04-16 — Phase 10 review: resolver correctness + settings UX
 
 Not committed yet at time of writing.
+
+### Correctness
+
+- **Generation guard on `ModuleRegistryService.resolveAccess`.** The
+  effect + `refresh()` can fire concurrently (tenant change while
+  the admin is toggling overrides). Added a monotonic counter + two
+  check points (after the parallel fetch, after the plan-modules
+  fetch). Stale results are discarded silently.
+- **Try/catch + swallow-after-log in `resolveAccess`.** Previously
+  the effect callback did `void this.resolveAccess(tenantId)` with
+  no catch — a failing `getTenantPlanId` or `getTenantModuleOverrides`
+  would produce an unhandled rejection. Now errors log and the
+  signals stay at their last-good values.
+
+### UX
+
+- **Plan card shows included modules as chips.** Description is
+  good but abstract; a strip of "Included: Inspections ·
+  Corrective Actions · Equipment" makes the effect of switching
+  plans concrete at a glance. Derived from the same resolved-access
+  map the table uses, so zero extra queries.
+
+### Cleanup
+
+- **Removed unused `TenantPlanSummary` type.** Defined in the
+  initial spec but never used by any service or component. YAGNI.
+- **Fixed duplicate import** of `ModuleRegistryService` /
+  `MODULE_CATALOGUE` from the same file in the settings component.
+
+### Not changing
+
+- **Downgrade confirmation dialog.** Meaningful UX, but deciding
+  "is this a downgrade" cleanly is its own little problem (compare
+  module sets? sort_order?). Real work when billing lands.
+- **Success toast on save.** Needs a whole-app toast primitive we
+  don't have yet — bigger than this review.
+- **Settings route component renamed to `SettingsModulesComponent`.**
+  Considered — file lives at `features/settings/pages/tenant-modules/`,
+  class name is not user-visible, not worth the rename churn.
+
+---
+
+## 2026-04-16 — Phase 10: Module toggles + tenant plan management
+
+Shipped in commit [`d533242`](https://github.com/DevJ1975/soteria_platform/commit/d533242).
 
 Turns the modules system into a proper SaaS control surface: plans
 determine default module access, per-tenant overrides force a module
