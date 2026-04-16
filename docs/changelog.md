@@ -8,6 +8,82 @@ What's shipped, in reverse chronological order.
 
 ---
 
+## 2026-04-16 — Phase 11 review: admin UX hardening
+
+Not committed yet at time of writing.
+
+### Correctness
+
+- **`PlatformAdminTenantsService.getRecent` now applies `.limit()`
+  at the database.** Previously it fetched the full tenants table
+  and sliced client-side. Fine at 5 tenants, obviously wrong at 500.
+- **Dashboard recent-tenants load has a scoped error slot.** A
+  failure used to be swallowed with a half-silent comment. Now it
+  sets `recentError()` and renders inside the card rather than
+  bubbling to the page alert — one failing list shouldn't black out
+  the KPIs above it.
+
+### Reusable primitives
+
+- **`AuthService.isPlatformAdmin`.** Centralized the
+  `profile()?.role === 'platform_admin'` check so the guard, topbar
+  quick-link, and any future operator-only chrome all read from one
+  source.
+- **`TenantStatusChipComponent`.** Lifted the trial/active/suspended/
+  cancelled pill out of the tenants list so the tenant edit page
+  (and everything that follows) can reuse the same color semantics
+  and markup.
+- **`firstEmbedded` helper** in `@shared/utils/postgrest.util.ts`.
+  PostgREST embedded selects return an object *or* a one-element
+  array depending on relationship metadata; this normalizes both
+  shapes to one, with a comment that explains why.
+
+### UX
+
+- **Tenants list: status filter + free-text search.** Status dropdown
+  over the four `TenantStatus` values plus "all", plus a search box
+  matching name/slug/plan. Client-side filter since list size is
+  reasonable; a comment calls out when to push it down to PostgREST.
+- **Tenants list distinguishes two empty states.** "No tenants yet"
+  (prompts create) vs. "No tenants match your filters" (prompts
+  clear). Lumping these together hides which is which.
+- **Plans list: visible dirty state + sticky action footer.** An
+  edited card grows an amber border and an "Unsaved changes" badge,
+  and its footer sticks to the bottom of the card so the Save
+  button doesn't scroll out of reach when editing a long module
+  checkbox list.
+- **Plans list: module count indicator** (e.g. "3 of 7") in the
+  header of each card's modules section.
+- **Tenant edit page: shows status chip in the header** so the
+  current state is visible before the operator opens the Status
+  dropdown.
+
+### Cleanup
+
+- **`PlanEdits` interface** in plans-list replaces the
+  `Partial<{… modules: Set<…> }>` sketch. The `ReadonlyMap<…>` +
+  `patchEdits` helper makes edit-state updates less error-prone.
+- **`mapSummaryRow` factored out** of `getTenants` so `getRecent`
+  can use the same row-to-summary mapping without copy-paste.
+
+### Docs
+
+- **Integration checklist** added to admin-guide.md — the five-step
+  "plug this into an existing Soteria checkout" path plus a short
+  "extending the admin surface" guide.
+
+### Not changing
+
+- **Pagination on tenants.** Client-side filter is fine at expected
+  scale; pagination lands when we see it's needed.
+- **Per-tenant user count in the list.** Nice-to-have but needs
+  another query — holding off until we have a real cost signal.
+- **Mobile shell refinement.** The sidebar is functional on mobile
+  but not optimized. Platform-admin traffic from phones is rare;
+  not worth blocking this pass on it.
+
+---
+
 ## 2026-04-16 — Phase 11: Platform admin area
 
 Separate operator UI at `/platform-admin/*` for internal staff to

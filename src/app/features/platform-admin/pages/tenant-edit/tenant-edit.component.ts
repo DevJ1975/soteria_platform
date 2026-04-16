@@ -13,6 +13,7 @@ import { PageHeaderComponent } from '@shared/components/page-header/page-header.
 import { formatActivityDate } from '@shared/utils/date.util';
 import { extractErrorMessage, isUniqueViolation } from '@shared/utils/errors.util';
 
+import { TenantStatusChipComponent } from '../../components/tenant-status-chip/tenant-status-chip.component';
 import { PlatformAdminPlansService } from '../../services/platform-admin-plans.service';
 import { PlatformAdminTenantsService } from '../../services/platform-admin-tenants.service';
 
@@ -33,13 +34,21 @@ const SLUG_MAX = 100;
 @Component({
   selector: 'sot-platform-admin-tenant-edit',
   standalone: true,
-  imports: [ReactiveFormsModule, RouterLink, PageHeaderComponent],
+  imports: [
+    ReactiveFormsModule,
+    RouterLink,
+    PageHeaderComponent,
+    TenantStatusChipComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <sot-page-header
       [title]="tenant()?.name ?? 'Edit tenant'"
       subtitle="Update tenant details and plan assignment."
     >
+      @if (tenant(); as t) {
+        <sot-tenant-status-chip [status]="t.status" />
+      }
       <a class="sot-btn sot-btn--ghost" routerLink="/platform-admin/tenants">
         ← Back to tenants
       </a>

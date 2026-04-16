@@ -17,6 +17,6 @@ export const platformAdminGuard: CanActivateFn = async () => {
 
   await auth.whenInitialized();
 
-  if (auth.profile()?.role === 'platform_admin') return true;
+  if (auth.isPlatformAdmin()) return true;
   return router.createUrlTree(['/app/dashboard']);
 };

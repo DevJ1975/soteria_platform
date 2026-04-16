@@ -2,12 +2,18 @@ import { inject, Injectable } from '@angular/core';
 
 import { Tenant } from '@core/models';
 import { SupabaseService } from '@core/services/supabase.service';
+import { firstEmbedded } from '@shared/utils/postgrest.util';
 
 import {
   CreateTenantPayload,
   TenantSummary,
   UpdateTenantPayload,
 } from '../models/platform-admin.model';
+
+/** Columns plus the embedded plan name; keep in one place so the list
+ *  and "recent" methods don't drift. */
+const TENANT_SUMMARY_SELECT =
+  'id, name, slug, status, plan_id, created_at, updated_at, plan:subscription_plans(name)';
 
 /**
  * Cross-tenant tenant management for the platform admin area.
@@ -30,37 +36,12 @@ export class PlatformAdminTenantsService {
   private readonly supabase = inject(SupabaseService);
 
   async getTenants(): Promise<TenantSummary[]> {
-    // Embedded select pulls the plan's name alongside each tenant, so
-    // the list page doesn't N+1 a plan lookup per row.
     const { data, error } = await this.supabase.client
       .from('tenants')
-      .select(
-        'id, name, slug, status, plan_id, created_at, updated_at, plan:subscription_plans(name)',
-      )
+      .select(TENANT_SUMMARY_SELECT)
       .order('created_at', { ascending: false });
     if (error) throw error;
-
-    return (data ?? []).map((r) => {
-      // PostgREST embeds can come back as an object *or* an array
-      // (depending on relationship metadata). Handle both: we asked
-      // for a single-parent `plan` so we only care about the first.
-      const planField = r['plan'] as
-        | { name: string }
-        | { name: string }[]
-        | null
-        | undefined;
-      const plan = Array.isArray(planField) ? planField[0] : planField;
-      return {
-        id: r['id'] as string,
-        name: r['name'] as string,
-        slug: r['slug'] as string,
-        status: r['status'] as TenantSummary['status'],
-        planId: (r['plan_id'] as string | null) ?? null,
-        planName: plan?.name ?? null,
-        createdAt: r['created_at'] as string,
-        updatedAt: r['updated_at'] as string,
-      };
-    });
+    return (data ?? []).map(mapSummaryRow);
   }
 
   async getTenantById(id: string): Promise<Tenant | null> {
@@ -148,9 +129,32 @@ export class PlatformAdminTenantsService {
     return count ?? 0;
   }
 
-  /** Most-recent tenants for the platform dashboard. */
+  /**
+   * Most-recent tenants for the platform dashboard. Applies `.limit()`
+   * at the DB so we don't pull the whole tenant table for a 5-row card.
+   */
   async getRecent(limit = 5): Promise<TenantSummary[]> {
-    const all = await this.getTenants();
-    return all.slice(0, limit);
+    const { data, error } = await this.supabase.client
+      .from('tenants')
+      .select(TENANT_SUMMARY_SELECT)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error) throw error;
+    return (data ?? []).map(mapSummaryRow);
   }
+}
+
+function mapSummaryRow(row: unknown): TenantSummary {
+  const r = row as Record<string, unknown>;
+  const plan = firstEmbedded<{ name: string }>(r['plan']);
+  return {
+    id: r['id'] as string,
+    name: r['name'] as string,
+    slug: r['slug'] as string,
+    status: r['status'] as TenantSummary['status'],
+    planId: (r['plan_id'] as string | null) ?? null,
+    planName: plan?.name ?? null,
+    createdAt: r['created_at'] as string,
+    updatedAt: r['updated_at'] as string,
+  };
 }

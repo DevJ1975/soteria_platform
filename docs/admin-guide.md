@@ -159,6 +159,65 @@ Non-platform-admins hitting the admin services get empty selects and
 refused writes at the DB level. The route guard is belt-and-suspenders
 for a good UX; the DB is the real enforcement boundary.
 
+### Integration checklist
+
+If you're wiring platform admin into a fresh Soteria checkout (or a
+fork), the moving parts are:
+
+1. **Apply the migration.**
+   `supabase db push` to add
+   `20260416120014_platform_admin_access.sql`. This creates the
+   additive RLS policies and adds no new columns or tables.
+2. **Mount the top-level route.** In [`src/app/app.routes.ts`](../src/app/app.routes.ts):
+   ```ts
+   {
+     path: 'platform-admin',
+     component: PlatformAdminShellComponent,
+     canActivate: [authGuard, platformAdminGuard],
+     loadChildren: () =>
+       import('./features/platform-admin/platform-admin.routes')
+         .then((m) => m.PLATFORM_ADMIN_ROUTES),
+   }
+   ```
+   The two-guard order matters: `authGuard` awaits
+   `AuthService.whenInitialized()`, and `platformAdminGuard` assumes
+   the profile is loaded so it can read `auth.isPlatformAdmin()`.
+3. **Consume `AuthService.isPlatformAdmin` anywhere you need a
+   role-gated UI primitive.** It lives on the shared auth service
+   (not each component), so the guard, topbar quick-link, and any
+   future "operator-only" chrome all read from one place.
+4. **Bootstrap the first admin** via the SQL update above. The app
+   intentionally has no self-promotion flow.
+5. **Sign out and back in.** The client caches the profile; the role
+   change doesn't take effect until `loadProfile` runs again.
+
+If you already have an `AppShellComponent` topbar, add a role-gated
+button that links to `/platform-admin/dashboard`:
+
+```html
+@if (auth.isPlatformAdmin()) {
+  <a routerLink="/platform-admin/dashboard" class="sot-btn sot-btn--ghost">
+    Platform Admin
+  </a>
+}
+```
+
+### Extending the admin surface
+
+- **Add a new cross-tenant read:** extend one of the
+  `PlatformAdmin*Service` classes. Do *not* add `.eq('tenant_id', …)`.
+  Let RLS do the scoping.
+- **Add a new cross-tenant write:** if the target table doesn't
+  already have a `*_by_platform_admin` policy, add one in a new
+  migration. The existing ones follow a consistent
+  `for all / using … with check …` shape on
+  `public.current_user_role() = 'platform_admin'`.
+- **Add a new page:** drop a component into
+  `features/platform-admin/pages/<name>/` and register it in
+  [`platform-admin.routes.ts`](../src/app/features/platform-admin/platform-admin.routes.ts).
+  Add a sidebar item in
+  [`platform-admin-shell.component.ts`](../src/app/layouts/platform-admin-shell/platform-admin-shell.component.ts).
+
 ---
 
 ## Modules and toggling

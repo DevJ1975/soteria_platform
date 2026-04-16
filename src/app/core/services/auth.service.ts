@@ -45,6 +45,16 @@ export class AuthService {
 
   readonly tenantId = computed(() => this._profile()?.tenantId ?? null);
 
+  /**
+   * True iff the signed-in user has the cross-tenant operator role.
+   * Centralized here so guards, topbar links, and any future admin
+   * surface all read from the same source instead of each recomputing
+   * `profile()?.role === 'platform_admin'`.
+   */
+  readonly isPlatformAdmin = computed(
+    () => this._profile()?.role === 'platform_admin',
+  );
+
   /** Convenience: "First Last" for the signed-in user (or empty string). */
   readonly fullName = computed(() => {
     const p = this._profile();

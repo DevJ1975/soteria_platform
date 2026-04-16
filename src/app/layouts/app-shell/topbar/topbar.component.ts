@@ -163,9 +163,7 @@ export class TopbarComponent {
 
   protected readonly userRole = computed(() => this.auth.profile()?.role ?? '');
 
-  protected readonly isPlatformAdmin = computed(
-    () => this.auth.profile()?.role === 'platform_admin',
-  );
+  protected readonly isPlatformAdmin = this.auth.isPlatformAdmin;
 
   protected readonly initials = computed(() => {
     const profile = this.auth.profile();

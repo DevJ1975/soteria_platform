@@ -16,7 +16,7 @@ import { extractErrorMessage, isUniqueViolation } from '@shared/utils/errors.uti
 
 import { PlatformAdminPlansService } from '../../services/platform-admin-plans.service';
 
-interface PlanWithModules {
+interface PlanRow {
   plan: SubscriptionPlan;
   moduleKeys: readonly ModuleKey[];
 }
@@ -28,14 +28,42 @@ interface CatalogueEntry {
 }
 
 /**
+ * Per-plan pending edits. `undefined` slots mean "not dirty, use the
+ * stored value". `modules` being present means the operator touched the
+ * checkboxes at least once — we snapshot the full desired set rather
+ * than a diff so save-time logic stays obvious.
+ */
+interface PlanEdits {
+  name?: string;
+  description?: string;
+  sortOrder?: number;
+  modules?: ReadonlySet<ModuleKey>;
+}
+
+interface DraftPlan {
+  key: string;
+  name: string;
+  description: string;
+  sortOrder: number;
+}
+
+/**
  * Subscription plan catalogue — cards per plan with inline editable
  * metadata and module membership.
  *
- * Design note: I considered a separate plan-new / plan-edit pair to
- * match the tenant flow, but plan CRUD is a much lower-traffic admin
- * operation and the edit surface is narrow enough that keeping
- * everything on one screen avoids route-thrash. The "New plan" button
- * adds an in-memory draft card that writes on first save.
+ * Why inline (not separate pages)
+ * -------------------------------
+ * Plan mutations are low-volume and the surface is small (4 metadata
+ * fields + checkbox membership). Splitting create/edit into dedicated
+ * routes would add navigation friction without buying anything.
+ *
+ * Dirty-state UX
+ * --------------
+ * A card turns into "edit mode" the moment any field or checkbox
+ * changes: accent border, badge in the header, and a sticky action
+ * footer that doesn't scroll away. Without the sticky footer, editing
+ * a plan's module list (7 checkboxes) easily scrolls the Save button
+ * off-screen on smaller viewports.
  */
 @Component({
   selector: 'sot-platform-admin-plans-list',
@@ -68,9 +96,9 @@ interface CatalogueEntry {
         @if (draft(); as d) {
           <article class="plan-card plan-card--draft sot-card">
             <header class="plan-card__header">
-              <span class="plan-card__badge">New plan</span>
+              <span class="plan-card__badge plan-card__badge--draft">New plan</span>
             </header>
-            <div class="plan-card__body">
+            <div class="plan-card__body plan-card__body--single">
               <div class="plan-card__grid">
                 <label class="sot-label" for="draft-key">
                   Key <span class="required" aria-hidden="true">*</span>
@@ -114,6 +142,9 @@ interface CatalogueEntry {
                   (ngModelChange)="updateDraft('sortOrder', $event)"
                 />
               </div>
+              <p class="plan-card__hint">
+                Module membership can be configured once the plan is created.
+              </p>
             </div>
             <footer class="plan-card__footer">
               <button
@@ -147,11 +178,20 @@ interface CatalogueEntry {
         }
 
         @for (row of plans(); track row.plan.id) {
-          <article class="plan-card sot-card" [class.plan-card--inactive]="!row.plan.isActive">
+          <article
+            class="plan-card sot-card"
+            [class.plan-card--inactive]="!row.plan.isActive"
+            [class.plan-card--dirty]="isDirty(row.plan.id)"
+          >
             <header class="plan-card__header">
               <div class="plan-card__title-wrap">
                 <h2 class="plan-card__title">{{ row.plan.name }}</h2>
                 <span class="plan-card__key">{{ row.plan.key }}</span>
+                @if (isDirty(row.plan.id)) {
+                  <span class="plan-card__badge plan-card__badge--dirty">
+                    Unsaved changes
+                  </span>
+                }
               </div>
               <label class="toggle">
                 <input
@@ -170,7 +210,7 @@ interface CatalogueEntry {
                   [id]="'name-' + row.plan.id"
                   type="text"
                   class="sot-input"
-                  [ngModel]="editingName(row.plan.id) ?? row.plan.name"
+                  [ngModel]="editValue(row.plan.id, 'name') ?? row.plan.name"
                   (ngModelChange)="onFieldEdit(row.plan.id, 'name', $event)"
                 />
 
@@ -179,7 +219,7 @@ interface CatalogueEntry {
                   [id]="'desc-' + row.plan.id"
                   type="text"
                   class="sot-input"
-                  [ngModel]="editingDescription(row.plan.id) ?? row.plan.description"
+                  [ngModel]="editValue(row.plan.id, 'description') ?? row.plan.description"
                   (ngModelChange)="onFieldEdit(row.plan.id, 'description', $event)"
                 />
 
@@ -188,13 +228,18 @@ interface CatalogueEntry {
                   [id]="'sort-' + row.plan.id"
                   type="number"
                   class="sot-input plan-card__num"
-                  [ngModel]="editingSortOrder(row.plan.id) ?? row.plan.sortOrder"
+                  [ngModel]="editValue(row.plan.id, 'sortOrder') ?? row.plan.sortOrder"
                   (ngModelChange)="onFieldEdit(row.plan.id, 'sortOrder', $event)"
                 />
               </div>
 
               <div class="modules">
-                <h3 class="modules__title">Included modules</h3>
+                <h3 class="modules__title">
+                  Included modules
+                  <span class="modules__count">
+                    {{ includedCount(row) }} of {{ catalogue().length }}
+                  </span>
+                </h3>
                 <ul class="modules__list">
                   @for (m of catalogue(); track m.key) {
                     <li class="modules__item">
@@ -212,28 +257,29 @@ interface CatalogueEntry {
               </div>
             </div>
 
-            <footer class="plan-card__footer">
-              @if (isDirty(row.plan.id)) {
-                <button
-                  type="button"
-                  class="sot-btn sot-btn--ghost"
-                  (click)="cancelEdits(row.plan.id)"
-                  [disabled]="saving() === row.plan.id"
-                >Cancel</button>
-                <button
-                  type="button"
-                  class="sot-btn sot-btn--primary"
-                  (click)="saveEdits(row.plan)"
-                  [disabled]="saving() === row.plan.id"
-                >
-                  {{ saving() === row.plan.id ? 'Saving…' : 'Save changes' }}
-                </button>
-              } @else {
+            @if (isDirty(row.plan.id)) {
+              <footer class="plan-card__footer plan-card__footer--sticky">
                 <span class="plan-card__footer-hint">
-                  Edit any field to enable Save.
+                  You have unsaved changes.
                 </span>
-              }
-            </footer>
+                <div class="plan-card__footer-actions">
+                  <button
+                    type="button"
+                    class="sot-btn sot-btn--ghost"
+                    (click)="cancelEdits(row.plan.id)"
+                    [disabled]="saving() === row.plan.id"
+                  >Cancel</button>
+                  <button
+                    type="button"
+                    class="sot-btn sot-btn--primary"
+                    (click)="saveEdits(row.plan)"
+                    [disabled]="saving() === row.plan.id"
+                  >
+                    {{ saving() === row.plan.id ? 'Saving…' : 'Save changes' }}
+                  </button>
+                </div>
+              </footer>
+            }
           </article>
         }
       </div>
@@ -250,11 +296,16 @@ interface CatalogueEntry {
       .plan-card {
         padding: 0;
         overflow: hidden;
+        transition: border-color 120ms ease, box-shadow 120ms ease;
       }
       .plan-card--inactive { opacity: 0.78; }
       .plan-card--draft {
         border-color: var(--color-primary);
         box-shadow: 0 0 0 1px var(--color-primary-soft);
+      }
+      .plan-card--dirty {
+        border-color: #f59e0b;
+        box-shadow: 0 0 0 1px #fef3c7;
       }
 
       .plan-card__header {
@@ -270,6 +321,7 @@ interface CatalogueEntry {
         display: flex;
         align-items: baseline;
         gap: var(--space-3);
+        flex-wrap: wrap;
       }
 
       .plan-card__title {
@@ -291,13 +343,21 @@ interface CatalogueEntry {
         display: inline-flex;
         padding: 3px 10px;
         border-radius: 999px;
-        background: var(--color-primary-soft);
-        color: var(--color-primary-hover);
-        border: 1px solid #bfdbfe;
         font-size: var(--font-size-xs);
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.06em;
+        border: 1px solid transparent;
+      }
+      .plan-card__badge--draft {
+        background: var(--color-primary-soft);
+        color: var(--color-primary-hover);
+        border-color: #bfdbfe;
+      }
+      .plan-card__badge--dirty {
+        background: #fef3c7;
+        color: #92400e;
+        border-color: #fcd34d;
       }
 
       .plan-card__body {
@@ -306,6 +366,7 @@ interface CatalogueEntry {
         grid-template-columns: 1fr 1fr;
         gap: var(--space-5);
       }
+      .plan-card__body--single { grid-template-columns: 1fr; }
       @media (max-width: 768px) {
         .plan-card__body { grid-template-columns: 1fr; }
       }
@@ -319,6 +380,12 @@ interface CatalogueEntry {
 
       .plan-card__num { max-width: 120px; }
 
+      .plan-card__hint {
+        margin-top: var(--space-3);
+        color: var(--color-text-subtle);
+        font-size: var(--font-size-sm);
+      }
+
       .modules__title {
         font-size: var(--font-size-sm);
         font-weight: 600;
@@ -326,6 +393,16 @@ interface CatalogueEntry {
         text-transform: uppercase;
         letter-spacing: 0.06em;
         margin-bottom: var(--space-2);
+        display: flex;
+        align-items: baseline;
+        gap: var(--space-2);
+      }
+      .modules__count {
+        font-size: var(--font-size-xs);
+        color: var(--color-text-subtle);
+        font-weight: 500;
+        text-transform: none;
+        letter-spacing: 0;
       }
       .modules__list {
         list-style: none;
@@ -352,9 +429,21 @@ interface CatalogueEntry {
         border-top: 1px solid var(--color-border);
         background: var(--color-surface);
       }
+      .plan-card__footer--sticky {
+        position: sticky;
+        bottom: 0;
+        background: var(--color-surface);
+        z-index: 1;
+        box-shadow: 0 -1px 2px rgba(15, 23, 42, 0.06);
+        justify-content: space-between;
+      }
       .plan-card__footer-hint {
         color: var(--color-text-subtle);
         font-size: var(--font-size-sm);
+      }
+      .plan-card__footer-actions {
+        display: flex;
+        gap: var(--space-2);
       }
 
       .toggle {
@@ -373,7 +462,7 @@ interface CatalogueEntry {
 export class PlatformAdminPlansListComponent implements OnInit {
   private readonly service = inject(PlatformAdminPlansService);
 
-  protected readonly plans = signal<PlanWithModules[]>([]);
+  protected readonly plans = signal<PlanRow[]>([]);
   protected readonly loading = signal(true);
   protected readonly errorMessage = signal<string | null>(null);
   /** id of the plan whose save is in flight, or null. */
@@ -390,19 +479,12 @@ export class PlatformAdminPlansListComponent implements OnInit {
   );
 
   /**
-   * Per-plan pending edits. Stored as a signal of a Map keyed by
-   * plan id so we can detect dirty state without a form per row.
+   * Per-plan pending edits. Stored as a `Map` keyed by plan id so we
+   * can detect dirty state without a reactive form per row.
    */
-  private readonly edits = signal<
-    Map<string, Partial<{ name: string; description: string; sortOrder: number; modules: Set<ModuleKey> }>>
-  >(new Map());
+  private readonly edits = signal<ReadonlyMap<string, PlanEdits>>(new Map());
 
-  protected readonly draft = signal<{
-    key: string;
-    name: string;
-    description: string;
-    sortOrder: number;
-  } | null>(null);
+  protected readonly draft = signal<DraftPlan | null>(null);
   protected readonly savingDraft = signal(false);
 
   protected readonly canSaveDraft = computed(() => {
@@ -436,24 +518,42 @@ export class PlatformAdminPlansListComponent implements OnInit {
 
   // -- Edit helpers ------------------------------------------------
 
-  protected editingName(planId: string): string | undefined {
-    return this.edits().get(planId)?.name;
-  }
-  protected editingDescription(planId: string): string | undefined {
-    return this.edits().get(planId)?.description;
-  }
-  protected editingSortOrder(planId: string): number | undefined {
-    return this.edits().get(planId)?.sortOrder;
+  /** Typed accessor for a single edit field. */
+  protected editValue<K extends 'name' | 'description' | 'sortOrder'>(
+    planId: string,
+    field: K,
+  ): PlanEdits[K] {
+    return this.edits().get(planId)?.[field];
   }
 
   protected isDirty(planId: string): boolean {
     const e = this.edits().get(planId);
-    return !!e && Object.keys(e).length > 0;
+    if (!e) return false;
+    return (
+      e.name !== undefined ||
+      e.description !== undefined ||
+      e.sortOrder !== undefined ||
+      e.modules !== undefined
+    );
   }
 
-  protected isModuleIncluded(row: PlanWithModules, key: ModuleKey): boolean {
+  protected isModuleIncluded(row: PlanRow, key: ModuleKey): boolean {
     const pending = this.edits().get(row.plan.id)?.modules;
     return pending ? pending.has(key) : row.moduleKeys.includes(key);
+  }
+
+  /** Number of modules currently (pending + saved) included on the plan. */
+  protected includedCount(row: PlanRow): number {
+    const pending = this.edits().get(row.plan.id)?.modules;
+    return pending ? pending.size : row.moduleKeys.length;
+  }
+
+  private patchEdits(planId: string, patch: PlanEdits): void {
+    this.edits.update((map) => {
+      const next = new Map(map);
+      next.set(planId, { ...(next.get(planId) ?? {}), ...patch });
+      return next;
+    });
   }
 
   protected onFieldEdit(
@@ -461,33 +561,22 @@ export class PlatformAdminPlansListComponent implements OnInit {
     field: 'name' | 'description' | 'sortOrder',
     value: string | number,
   ): void {
-    this.edits.update((map) => {
-      const next = new Map(map);
-      const current = { ...(next.get(planId) ?? {}) };
-      (current as Record<string, unknown>)[field] = value;
-      next.set(planId, current);
-      return next;
-    });
+    const coerced = field === 'sortOrder' ? Number(value) : value;
+    this.patchEdits(planId, { [field]: coerced });
   }
 
   protected onModuleToggle(
-    row: PlanWithModules,
+    row: PlanRow,
     key: ModuleKey,
     event: Event,
   ): void {
     const checked = (event.target as HTMLInputElement).checked;
-    this.edits.update((map) => {
-      const next = new Map(map);
-      const current = { ...(next.get(row.plan.id) ?? {}) };
-      const existing =
-        current.modules ?? new Set<ModuleKey>(row.moduleKeys);
-      const updated = new Set(existing);
-      if (checked) updated.add(key);
-      else updated.delete(key);
-      current.modules = updated;
-      next.set(row.plan.id, current);
-      return next;
-    });
+    const existing =
+      this.edits().get(row.plan.id)?.modules ?? new Set(row.moduleKeys);
+    const updated = new Set(existing);
+    if (checked) updated.add(key);
+    else updated.delete(key);
+    this.patchEdits(row.plan.id, { modules: updated });
   }
 
   protected cancelEdits(planId: string): void {
@@ -500,21 +589,26 @@ export class PlatformAdminPlansListComponent implements OnInit {
 
   protected async saveEdits(plan: SubscriptionPlan): Promise<void> {
     const pending = this.edits().get(plan.id);
-    if (!pending) return;
+    if (!pending || !this.isDirty(plan.id)) return;
 
     this.saving.set(plan.id);
     this.errorMessage.set(null);
     try {
-      const metaPayload: Record<string, unknown> = {};
-      if (pending.name !== undefined) metaPayload['name'] = pending.name.trim();
-      if (pending.description !== undefined) {
-        metaPayload['description'] = pending.description.trim();
-      }
-      if (pending.sortOrder !== undefined) {
-        metaPayload['sortOrder'] = Number(pending.sortOrder);
-      }
-      if (Object.keys(metaPayload).length > 0) {
-        await this.service.updatePlan(plan.id, metaPayload);
+      // Metadata patch: only the fields the operator touched.
+      const hasMetaChange =
+        pending.name !== undefined ||
+        pending.description !== undefined ||
+        pending.sortOrder !== undefined;
+      if (hasMetaChange) {
+        await this.service.updatePlan(plan.id, {
+          ...(pending.name !== undefined && { name: pending.name.trim() }),
+          ...(pending.description !== undefined && {
+            description: pending.description.trim(),
+          }),
+          ...(pending.sortOrder !== undefined && {
+            sortOrder: Number(pending.sortOrder),
+          }),
+        });
       }
       if (pending.modules) {
         await this.service.setPlanModules(plan.id, [...pending.modules]);
@@ -574,7 +668,7 @@ export class PlatformAdminPlansListComponent implements OnInit {
     this.draft.set(null);
   }
 
-  protected updateDraft<K extends 'key' | 'name' | 'description' | 'sortOrder'>(
+  protected updateDraft<K extends keyof DraftPlan>(
     field: K,
     value: string | number,
   ): void {

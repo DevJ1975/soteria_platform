@@ -69,7 +69,11 @@ import { PlatformAdminTenantsService } from '../../services/platform-admin-tenan
         </a>
       </header>
 
-      @if (loadingRecent()) {
+      @if (recentError()) {
+        <p class="recent__state recent__state--error" role="alert">
+          {{ recentError() }}
+        </p>
+      } @else if (loadingRecent()) {
         <p class="recent__state">Loading…</p>
       } @else if (recentTenants().length === 0) {
         <p class="recent__state">No tenants yet.</p>
@@ -135,6 +139,11 @@ import { PlatformAdminTenantsService } from '../../services/platform-admin-tenan
         background: var(--color-surface-muted);
         border-radius: var(--radius-md);
       }
+      .recent__state--error {
+        color: #991b1b;
+        background: #fef2f2;
+        border: 1px solid #fecaca;
+      }
 
       .recent__list {
         list-style: none;
@@ -191,6 +200,7 @@ export class PlatformAdminDashboardComponent implements OnInit {
   protected readonly moduleCount = signal(0);
   protected readonly recentTenants = signal<TenantSummary[]>([]);
   protected readonly loadingRecent = signal(true);
+  protected readonly recentError = signal<string | null>(null);
   protected readonly errorMessage = signal<string | null>(null);
 
   protected readonly formatDate = formatActivityDate;
@@ -222,8 +232,13 @@ export class PlatformAdminDashboardComponent implements OnInit {
   private async loadRecentTenants(): Promise<void> {
     try {
       this.recentTenants.set(await this.tenantsService.getRecent());
-    } catch {
-      /* recent list isn't critical; stay quiet */
+    } catch (err) {
+      // A failing recent-list shouldn't black out the KPIs, so it gets
+      // its own scoped error slot rendered inside the card rather than
+      // bubbling to the page-level alert.
+      this.recentError.set(
+        extractErrorMessage(err, 'Could not load recent tenants.'),
+      );
     } finally {
       this.loadingRecent.set(false);
     }
