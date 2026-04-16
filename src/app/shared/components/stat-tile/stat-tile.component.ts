@@ -49,10 +49,9 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
       .tile__helper {
         font-size: var(--font-size-sm);
         color: var(--color-text-subtle);
-
-        &--up { color: var(--color-success); }
-        &--down { color: var(--color-danger); }
       }
+      .tile__helper--up { color: var(--color-success); }
+      .tile__helper--down { color: var(--color-danger); }
     `,
   ],
 })
