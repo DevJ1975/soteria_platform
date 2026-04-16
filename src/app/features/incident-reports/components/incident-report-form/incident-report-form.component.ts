@@ -9,6 +9,8 @@ import {
 } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 
+import { localNow, toDatetimeLocal } from '@shared/utils/date.util';
+
 import {
   CreateIncidentReportPayload,
   INCIDENT_REPORT_TYPE_LABEL,
@@ -421,18 +423,3 @@ function labelOptions<T extends string>(
   return (Object.keys(labels) as T[]).map((value) => ({ value, label: labels[value] }));
 }
 
-/** Format current local time as YYYY-MM-DDTHH:mm for a datetime-local input. */
-function localNow(): string {
-  return toDatetimeLocal(new Date().toISOString());
-}
-
-/** ISO timestamp (UTC) → YYYY-MM-DDTHH:mm in local time. Datetime-local
- *  inputs don't accept timezone-tagged strings, so we strip after
- *  converting to the user's local clock. */
-function toDatetimeLocal(iso: string): string {
-  const d = new Date(iso);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
-    d.getHours(),
-  )}:${pad(d.getMinutes())}`;
-}

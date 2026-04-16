@@ -7,6 +7,8 @@ import {
 } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 
+import { localNow } from '@shared/utils/date.util';
+
 import {
   CreateEquipmentCheckPayload,
   EQUIPMENT_CHECK_STATUS_LABEL,
@@ -265,11 +267,3 @@ export class EquipmentCheckFormComponent {
   }
 }
 
-/** Format the current time as YYYY-MM-DDTHH:mm for a datetime-local input. */
-function localNow(): string {
-  const d = new Date();
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
-    d.getHours(),
-  )}:${pad(d.getMinutes())}`;
-}

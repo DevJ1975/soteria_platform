@@ -11,6 +11,7 @@ import { RouterLink } from '@angular/router';
 
 import { TenantMemberLookupService } from '@core/services/tenant-member-lookup.service';
 import { createGenerationGuard } from '@shared/utils/async-guards.util';
+import { formatDateTime } from '@shared/utils/date.util';
 import { extractErrorMessage } from '@shared/utils/errors.util';
 
 import { EquipmentCheckStatusChipComponent } from '../equipment-check-status-chip/equipment-check-status-chip.component';
@@ -204,10 +205,7 @@ export class EquipmentChecksPanelComponent {
     return EQUIPMENT_CHECK_TYPE_LABEL[c.checkType] ?? c.checkType;
   }
 
-  protected formatDate(iso: string): string {
-    const d = new Date(iso);
-    return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
-  }
+  protected readonly formatDate = formatDateTime;
 
   private async refresh(equipmentId: string): Promise<void> {
     const gen = this.guard.next();

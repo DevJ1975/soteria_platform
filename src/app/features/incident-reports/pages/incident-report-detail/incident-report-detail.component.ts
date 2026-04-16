@@ -11,6 +11,7 @@ import { RouterLink } from '@angular/router';
 
 import { TenantMemberLookupService } from '@core/services/tenant-member-lookup.service';
 import { PageHeaderComponent } from '@shared/components/page-header/page-header.component';
+import { formatDateTime } from '@shared/utils/date.util';
 import { extractErrorMessage } from '@shared/utils/errors.util';
 
 import { IncidentReportSeverityChipComponent } from '../../components/incident-report-severity-chip/incident-report-severity-chip.component';
@@ -212,10 +213,7 @@ export class IncidentReportDetailComponent implements OnInit {
     );
   });
 
-  protected formatDate(iso: string): string {
-    const d = new Date(iso);
-    return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
-  }
+  protected readonly formatDate = formatDateTime;
 
   async ngOnInit(): Promise<void> {
     void this.lookup.ensureLoaded();

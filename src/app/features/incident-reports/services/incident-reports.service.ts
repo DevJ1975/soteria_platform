@@ -95,6 +95,24 @@ export class IncidentReportsService {
     return this.getIncidentReports({ reportType: type });
   }
 
+  /**
+   * Count of non-closed reports for the current tenant. Shaped for the
+   * future dashboard KPI tile and the upcoming sidebar-badge work,
+   * symmetric with `getOpenCountByInspection` on inspections and
+   * `getActionableCountByEquipment` on equipment. Cheap because of the
+   * `(tenant_id, status)` index.
+   */
+  async getOpenCount(): Promise<number> {
+    const tenantId = this.requireTenantId();
+    const { count, error } = await this.supabase.client
+      .from('incident_reports')
+      .select('*', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId)
+      .in('status', [...OPEN_INCIDENT_STATUSES]);
+    if (error) throw error;
+    return count ?? 0;
+  }
+
   async createIncidentReport(
     payload: CreateIncidentReportPayload,
   ): Promise<IncidentReport> {

@@ -17,6 +17,7 @@ import {
   createDebouncer,
   createGenerationGuard,
 } from '@shared/utils/async-guards.util';
+import { formatDateTime } from '@shared/utils/date.util';
 import { extractErrorMessage } from '@shared/utils/errors.util';
 
 import { IncidentReportSeverityChipComponent } from '../../components/incident-report-severity-chip/incident-report-severity-chip.component';
@@ -292,6 +293,10 @@ const SEARCH_DEBOUNCE_MS = 250;
         color: var(--color-text-subtle);
         font-size: var(--font-size-sm);
         margin-top: 2px;
+        max-width: 36ch;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
 
       .table__actions-col { width: 1%; white-space: nowrap; text-align: right; }
@@ -340,10 +345,7 @@ export class IncidentReportsListComponent implements OnInit {
   protected readonly typeLabel = (r: IncidentReport): string =>
     INCIDENT_REPORT_TYPE_LABEL[r.reportType] ?? r.reportType;
 
-  protected formatDate(iso: string): string {
-    const d = new Date(iso);
-    return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
-  }
+  protected readonly formatDate = formatDateTime;
 
   async ngOnInit(): Promise<void> {
     void this.lookup.ensureLoaded();

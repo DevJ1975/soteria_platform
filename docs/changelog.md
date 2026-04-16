@@ -8,9 +8,51 @@ What's shipped, in reverse chronological order.
 
 ---
 
-## 2026-04-16 — Phase 6: Incident / Near Miss Reporting
+## 2026-04-16 — Phase 6 review: Incident Reports polish
 
 Not committed yet at time of writing.
+
+### Refactor: shared date helpers
+
+- `localNow()` and `toDatetimeLocal()` had been copy-pasted into both
+  forms with datetime-local inputs (equipment-check-form,
+  incident-report-form).
+- `new Date(iso).toLocaleString({ dateStyle: 'medium', timeStyle: 'short' })`
+  had been copy-pasted into three places (equipment-checks-panel,
+  incident-reports-list, incident-report-detail).
+- New [src/app/shared/utils/date.util.ts](../src/app/shared/utils/date.util.ts)
+  exports `localNow()`, `toDatetimeLocal(iso)`, and `formatDateTime(iso)`.
+  Five consumers now share one implementation and one behavior to update
+  when i18n / timezone handling lands.
+
+### Feature parity
+
+- New `IncidentReportsService.getOpenCount()` — symmetric with
+  `CorrectiveActionsService.getOpenCountByInspection()` and
+  `EquipmentChecksService.getActionableCountByEquipment()`. Cheap via
+  the `(tenant_id, status)` index. Ready for the dashboard KPI tile and
+  the upcoming sidebar-badge story.
+
+### UX polish
+
+- Incident list's `.table__sub` ("Reported by …" under each title) now
+  has the same ellipsis treatment as other list pages; long names no
+  longer push column width.
+
+### Not changed
+
+- Severity color scale — green-for-low looks slightly odd in a pure
+  safety context but matches the app-wide color language and keeps the
+  5 levels visually distinct.
+- Status lockdown after `submitted` — a workflow decision that depends
+  on tenant culture; not adding without a requirement.
+- Description required — stays optional; consistent with other modules.
+
+---
+
+## 2026-04-16 — Phase 6: Incident / Near Miss Reporting
+
+Shipped in commit [`06e1628`](https://github.com/DevJ1975/soteria_platform/commit/06e1628).
 
 ### Schema
 
