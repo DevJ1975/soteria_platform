@@ -1,0 +1,253 @@
+/* ==========================================================================
+   Soteria — Global styles
+   Design tokens live here. Components should consume CSS custom properties
+   rather than hard-coding colors, spacing, or radii.
+   ========================================================================== */
+
+:root {
+  /* Brand palette — industrial slate with a confident primary accent. */
+  --color-bg: #f5f7fa;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f1f3f7;
+  --color-border: #e4e8ef;
+  --color-border-strong: #cbd2de;
+
+  --color-text: #0f172a;
+  --color-text-muted: #475569;
+  --color-text-subtle: #7a8699;
+  --color-text-inverse: #ffffff;
+
+  --color-primary: #1f6feb;
+  --color-primary-hover: #1858c4;
+  --color-primary-soft: #e8f0fe;
+  --color-primary-ring: rgba(31, 111, 235, 0.25);
+
+  --color-accent: #0ea5a4;
+  --color-warning: #d97706;
+  --color-danger: #dc2626;
+  --color-success: #16a34a;
+
+  --color-sidebar-bg: #0f172a;
+  --color-sidebar-text: #cbd5e1;
+  --color-sidebar-text-active: #ffffff;
+  --color-sidebar-item-hover: #1e293b;
+  --color-sidebar-item-active: #1f6feb;
+
+  /* Spacing scale — 4px base. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --shadow-md: 0 6px 16px rgba(15, 23, 42, 0.08);
+  --shadow-lg: 0 16px 40px rgba(15, 23, 42, 0.12);
+
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    sans-serif;
+  --font-size-xs: 12px;
+  --font-size-sm: 13px;
+  --font-size-base: 14px;
+  --font-size-md: 15px;
+  --font-size-lg: 18px;
+  --font-size-xl: 22px;
+  --font-size-2xl: 28px;
+
+  --sidebar-width: 248px;
+  --topbar-height: 64px;
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-base);
+  color: var(--color-text);
+  background-color: var(--color-bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+a {
+  color: var(--color-primary);
+  text-decoration: none;
+  transition: color 120ms ease;
+
+  &:hover {
+    color: var(--color-primary-hover);
+    text-decoration: underline;
+  }
+}
+
+h1,
+h2,
+h3,
+h4,
+h5 {
+  margin: 0;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--color-text);
+  letter-spacing: -0.01em;
+}
+
+p {
+  margin: 0;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+/* Accessible focus ring — visible only for keyboard users. */
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+button,
+[role='button'] {
+  font-family: inherit;
+}
+
+/* --------------------------------------------------------------------------
+   Utility primitives. Keep this set small and opinionated — prefer
+   component-scoped SCSS for anything feature-specific.
+   -------------------------------------------------------------------------- */
+
+.sot-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  box-shadow: var(--shadow-sm);
+}
+
+.sot-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  height: 40px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 150ms var(--ease-out),
+    border-color 150ms var(--ease-out), color 150ms var(--ease-out),
+    box-shadow 150ms var(--ease-out), transform 120ms var(--ease-out);
+  user-select: none;
+
+  &:active:not(:disabled) {
+    transform: translateY(1px);
+  }
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--color-primary-ring);
+  }
+}
+
+.sot-btn--primary {
+  background: var(--color-primary);
+  color: var(--color-text-inverse);
+
+  &:hover:not(:disabled) {
+    background: var(--color-primary-hover);
+  }
+}
+
+.sot-btn--ghost {
+  background: transparent;
+  color: var(--color-text);
+  border-color: var(--color-border-strong);
+
+  &:hover:not(:disabled) {
+    background: var(--color-surface-muted);
+    border-color: var(--color-border-strong);
+  }
+}
+
+.sot-input {
+  width: 100%;
+  height: 42px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  font: inherit;
+  color: var(--color-text);
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+
+  &::placeholder {
+    color: var(--color-text-subtle);
+  }
+
+  &:hover:not(:focus) {
+    border-color: #aab3c2;
+  }
+
+  &:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px var(--color-primary-ring);
+  }
+}
+
+.sot-label {
+  display: block;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--color-text);
+  margin-bottom: var(--space-2);
+}
+
+.sot-form-field {
+  margin-bottom: var(--space-4);
+}
+
+.sot-alert {
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  margin-bottom: var(--space-4);
+  line-height: 1.5;
+
+  &--error {
+    background: #fee2e2;
+    color: #991b1b;
+    border: 1px solid #fecaca;
+  }
+
+  &--info {
+    background: var(--color-primary-soft);
+    color: var(--color-primary-hover);
+    border: 1px solid #bfdbfe;
+  }
+}

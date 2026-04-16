@@ -1,0 +1,50 @@
+# Dependencies
+/node_modules
+/.pnp
+.pnp.js
+
+# Build outputs
+/dist
+/tmp
+/out-tsc
+/bazel-out
+
+# IDEs / editors
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+
+# Angular cache
+.angular/cache
+.sass-cache/
+connect.lock
+/coverage
+/libpeerconnection.log
+npm-debug.log
+yarn-error.log
+testem.log
+/typings
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Secrets / local overrides
+src/environments/environment.local.ts
+.env
+.env.*
+!.env.example
+
+# Supabase CLI state
+supabase/.branches
+supabase/.temp
+supabase/functions/**/deno.lock

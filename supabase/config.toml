@@ -1,0 +1,5 @@
+# Supabase CLI config.
+# `project_id` is the subdomain of your Supabase project URL. Committing it
+# here means `supabase db push` and friends know which remote to target
+# without re-running `supabase link` on every machine.
+project_id = "jfrtkntiafvczduyrwed"
