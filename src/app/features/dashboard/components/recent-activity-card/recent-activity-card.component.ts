@@ -118,7 +118,7 @@ import { RouterLink } from '@angular/router';
 })
 export class RecentActivityCardComponent {
   readonly title = input.required<string>();
-  readonly viewAllLink = input.required<string | readonly string[]>();
+  readonly viewAllLink = input.required<string | unknown[]>();
   readonly count = input<number>(0);
   readonly emptyLabel = input<string>('No recent activity.');
 

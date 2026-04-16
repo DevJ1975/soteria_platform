@@ -304,36 +304,47 @@ function deriveCompletedAt(
   return null;
 }
 
-function mapRow(row: Record<string, unknown>): CorrectiveAction {
-  const insp = row['linked_inspection'] as
+/**
+ * Maps a PostgREST row back to the domain shape.
+ *
+ * Why `unknown` and not `Record<string, unknown>`: when a select string
+ * uses `!<fk_name>` embedded joins (as `SELECT_WITH_LINKS` does), the
+ * Supabase client's type generator can't resolve the row shape and
+ * widens `data` to `GenericStringError[]`. Taking `unknown` here lets
+ * call sites pass `data` directly without casting — the shape is
+ * runtime-known from the select string.
+ */
+function mapRow(row: unknown): CorrectiveAction {
+  const r = row as Record<string, unknown>;
+  const insp = r['linked_inspection'] as
     | { id: string; title: string }
     | null
     | undefined;
-  const incident = row['linked_incident_report'] as
+  const incident = r['linked_incident_report'] as
     | { id: string; title: string }
     | null
     | undefined;
-  const check = row['linked_equipment_check'] as
+  const check = r['linked_equipment_check'] as
     | { id: string; equipment_id: string; check_type: string; performed_at: string }
     | null
     | undefined;
 
   return {
-    id: row['id'] as string,
-    tenantId: row['tenant_id'] as string,
-    inspectionId: (row['inspection_id'] as string | null) ?? null,
-    incidentReportId: (row['incident_report_id'] as string | null) ?? null,
-    equipmentCheckId: (row['equipment_check_id'] as string | null) ?? null,
-    title: row['title'] as string,
-    description: (row['description'] as string) ?? '',
-    status: row['status'] as CorrectiveAction['status'],
-    priority: row['priority'] as CorrectiveAction['priority'],
-    assignedTo: (row['assigned_to'] as string | null) ?? null,
-    dueDate: (row['due_date'] as string | null) ?? null,
-    completedAt: (row['completed_at'] as string | null) ?? null,
-    createdBy: row['created_by'] as string,
-    createdAt: row['created_at'] as string,
-    updatedAt: row['updated_at'] as string,
+    id: r['id'] as string,
+    tenantId: r['tenant_id'] as string,
+    inspectionId: (r['inspection_id'] as string | null) ?? null,
+    incidentReportId: (r['incident_report_id'] as string | null) ?? null,
+    equipmentCheckId: (r['equipment_check_id'] as string | null) ?? null,
+    title: r['title'] as string,
+    description: (r['description'] as string) ?? '',
+    status: r['status'] as CorrectiveAction['status'],
+    priority: r['priority'] as CorrectiveAction['priority'],
+    assignedTo: (r['assigned_to'] as string | null) ?? null,
+    dueDate: (r['due_date'] as string | null) ?? null,
+    completedAt: (r['completed_at'] as string | null) ?? null,
+    createdBy: r['created_by'] as string,
+    createdAt: r['created_at'] as string,
+    updatedAt: r['updated_at'] as string,
     linkedInspection: insp ?? null,
     linkedIncidentReport: incident ?? null,
     linkedEquipmentCheck: check
