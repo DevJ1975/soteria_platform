@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "soteriaplatform",
+  "compatibility_date": "2026-04-16",
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "dist/soteria/browser"
+  },
+  "compatibility_flags": [
+    "nodejs_compat"
+  ]
+}
