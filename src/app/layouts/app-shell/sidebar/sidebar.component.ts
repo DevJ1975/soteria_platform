@@ -62,11 +62,19 @@ import { IconComponent } from '@shared/components/icon/icon.component';
             <sot-icon name="lock" />
             <span>Modules &amp; Plan</span>
           </a>
+          <a
+            class="sidebar__item"
+            routerLink="/app/billing"
+            routerLinkActive="sidebar__item--active"
+          >
+            <sot-icon name="credit-card" />
+            <span>Billing</span>
+          </a>
         </div>
       }
 
       <div class="sidebar__footer">
-        <p class="sidebar__footer-label">v0.1 · Phase 10</p>
+        <p class="sidebar__footer-label">v0.1 · Phase 12</p>
       </div>
     </nav>
   `,

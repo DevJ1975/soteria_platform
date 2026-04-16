@@ -33,8 +33,16 @@ export class TenantPlanService {
   }
 
   /**
-   * Assigns a new plan to the tenant. RLS restricts this to admins of
-   * the tenant; workers and supervisors get a policy denial.
+   * @deprecated Since Phase 12 the `subscriptions` table is the source of
+   * truth for plan assignment — writing directly to `tenants.plan_id` is
+   * overwritten by the `sync_tenant_plan_from_subscription` trigger on
+   * the next subscription update. Prefer
+   * `PlatformAdminSubscriptionsService.changePlan()` for operator
+   * flows; tenant self-serve plan change isn't available until
+   * Stripe-gated billing ships.
+   *
+   * Left in place to support ad-hoc platform-admin scripts that need
+   * to bypass the subscription path (e.g., tests, data migrations).
    */
   async updateTenantPlan(tenantId: string, planId: string | null): Promise<void> {
     const { error } = await this.supabase.client

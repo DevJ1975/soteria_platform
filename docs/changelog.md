@@ -8,6 +8,121 @@ What's shipped, in reverse chronological order.
 
 ---
 
+## 2026-04-17 — Phase 12: Billing & subscription lifecycle foundation
+
+Preparation layer for real billing. Introduces a `subscriptions`
+table as the source of truth for plan assignment + lifecycle state,
+an append-only `billing_events` audit log, and the access-control
+scaffolding that sits in front of module routes. Does **not** ship
+Stripe integration — that's the next phase.
+
+### Database
+
+- **Migration `20260417120015_billing_subscriptions.sql`.** Adds
+  `subscription_status` + `billing_event_type` enums, the
+  `subscriptions` (one-per-tenant) + `billing_events` (append-only)
+  tables, and two security-definer triggers:
+  - `tenants_create_subscription` auto-provisions a 14-day trial
+    subscription + two billing events on every tenant insert.
+  - `subscriptions_sync_tenant_plan` keeps `tenants.plan_id` in sync
+    with the subscription (derived column, keeps the module-access
+    resolver's one-row fast path).
+- **Backfill.** Pre-existing tenants get an `active` subscription
+  (if they had a plan) or `inactive` (if not). One `subscription_created`
+  event per backfilled row.
+- **Stripe readiness.** `external_customer_id`,
+  `external_subscription_id` (indexed), and `metadata` JSONB are
+  pre-allocated so webhook handlers can populate without a follow-up
+  migration.
+- **RLS.** Tenant members select their own subscription / events.
+  Writes are platform-admin only. Tenant admins explicitly cannot
+  modify billing data from the tenant app.
+
+### Core services
+
+- **`SubscriptionService`** (`@core/services`). Tenant-scoped reads +
+  cached `current` signal. Exposes `hasAccess`, `remainingTrialDays`,
+  `trialExpired`, and `isHealthy` computed signals so templates and
+  guards read state synchronously.
+- **`BillingEventsService`** — `logEvent` / `getTenantEvents`.
+- **`PlatformAdminSubscriptionsService`** — operator-side writes
+  (`changePlan`, `startTrial`, `cancelSubscription`, `setStatus`),
+  each emitting a `billing_events` row.
+- **Access helpers** (`@core/utils/subscription-access.util.ts`):
+  `canAccessPlatform`, `isTrialExpired`, `getRemainingTrialDays`,
+  `isCancellationEffective`, `isSubscriptionHealthy`. All take `now`
+  as an optional argument so they're trivially testable.
+
+### Access enforcement
+
+- **`billingAccessGuard`** wraps all module routes (inspections,
+  equipment, corrective-actions, incident-reports, training).
+  Dashboard, billing, and settings stay accessible regardless so a
+  lapsed tenant can reach help. Platform admins bypass the guard.
+- Guard fails **open** on fetch error (DB hiccup shouldn't lock a
+  tenant out); the billing page surfaces the real error.
+- `AppShellComponent.ngOnInit` warms the subscription cache so the
+  dashboard's trial banners / status badges render with real state
+  on first paint — the guard is not the only entry point.
+
+### Tenant-facing UI
+
+- **`/app/billing` page** — current plan, status badge, trial
+  countdown, placeholder "next billing period", and the two
+  canonical SaaS-pre-billing CTAs: "Upgrade plan (coming soon)" and
+  "Contact sales" (`mailto:`). Doubles as the lockout landing page
+  for tenants without access.
+- **Sidebar** grows a "Billing" link under the Admin section
+  (admin-only, `credit-card` icon).
+- **`/app/settings/modules`** — plan dropdown is now read-only with
+  a "Manage subscription →" link to `/app/billing`. Plan changes
+  are billing actions; they don't belong in module settings.
+
+### Platform admin updates
+
+- **Tenant edit page** grows a **Subscription** section with:
+  plan dropdown (writes via `changePlan`), status override (writes
+  via `setStatus`), start / restart trial, cancel at period end,
+  cancel immediately.
+- **Tenant edit `updateTenant` payload drops `planId`.** Plan writes
+  that land on `tenants.plan_id` directly are overwritten by the
+  sync trigger anyway; routing them through the subscription keeps
+  the audit log intact.
+- **`TenantPlanService.updateTenantPlan` deprecated** with a JSDoc
+  explanation. Left in place for ad-hoc scripts; new code should
+  call `PlatformAdminSubscriptionsService.changePlan`.
+
+### Shared primitives
+
+- **`SubscriptionStatusBadgeComponent`** in `@shared/components` —
+  colored pill with the same semantics as `TenantStatusChipComponent`.
+- **`.sot-btn--danger`** variant in `styles.scss` for the
+  cancel-immediately action (and any future destructive ops).
+- **`credit-card` icon** added to the shared `IconComponent`.
+
+### Docs
+
+- `admin-guide.md` gains a **Billing & subscriptions** section with
+  the state table, auto-provisioning flow, who-can-do-what, and a
+  concrete Stripe integration sketch.
+
+### Next step
+
+Real payment integration. The schema, services, event log, and
+access control are all in place — the Stripe phase becomes:
+
+1. A webhook handler (Supabase Edge Function) that maps Stripe
+   events → `subscriptions` updates + `billing_events` rows.
+2. A Stripe Checkout redirect from the `/app/billing` "Upgrade"
+   button.
+3. A "Manage subscription" portal link (Stripe Billing Portal).
+4. Populate `external_customer_id` / `external_subscription_id` on
+   first Checkout success.
+
+No schema migrations needed for any of that.
+
+---
+
 ## 2026-04-16 — Phase 11 review: admin UX hardening
 
 Not committed yet at time of writing.

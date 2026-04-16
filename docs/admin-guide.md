@@ -23,6 +23,7 @@ For tenant admins and the people running the Soteria platform.
 - [User roles](#user-roles)
 - [Platform admin area](#platform-admin-area)
 - [Modules and toggling](#modules-and-toggling)
+- [Billing & subscriptions](#billing--subscriptions)
 - [Database](#database)
 - [Local dev setup](#local-dev-setup)
 - [Supabase CLI](#supabase-cli)
@@ -265,6 +266,85 @@ To surface a **new** module, all three of these must be true:
 1. A row in `public.modules` with `is_available = true`.
 2. A row in `public.tenant_modules` with `is_enabled = true` for the tenant.
 3. A matching entry in `MODULE_CATALOGUE` in the frontend.
+
+---
+
+## Billing & subscriptions
+
+Every tenant has exactly one row in `public.subscriptions` which is the
+**source of truth** for plan assignment and lifecycle state. The
+`tenants.plan_id` column is kept as a derived fast-path for the module
+access resolver and synced from the subscription by the
+`sync_tenant_plan_from_subscription` trigger.
+
+### Lifecycle states
+
+| Status | Access? | Notes |
+| --- | :---: | --- |
+| `trialing` | yes, until `trial_end_date` | Auto-set on tenant creation; 14-day default. |
+| `active` | yes | Paying subscription. |
+| `past_due` | yes (grace) | Payment failed; dunning happens elsewhere. |
+| `canceled` | until `cancel_at` | Winding down; keep access until the window closes. |
+| `inactive` | no | Terminal; tenant is blocked from module routes. |
+
+Access is enforced by `billingAccessGuard` on every module route.
+Dashboard, `/app/billing`, and `/app/settings/*` stay accessible
+regardless so a locked-out tenant can see what's going on and email
+sales.
+
+### Automatic provisioning
+
+When a new tenant is inserted (via `handle_new_user` on signup or via
+the platform-admin "New tenant" form), the
+`tenants_create_subscription` trigger fires and:
+
+1. Creates a `subscriptions` row with status `trialing`, 14-day trial
+   window, and the tenant's initial plan.
+2. Inserts two `billing_events`: `subscription_created` and
+   `trial_started`.
+
+Existing tenants were backfilled at migration time:
+
+- Tenants with a plan → `active`, 30-day current period.
+- Tenants without a plan → `inactive`.
+
+### Who can change what
+
+- **Tenant admins:** *read only* on the `/app/billing` page. Plan
+  changes, cancellations, and status overrides go through the
+  platform admin UI or (eventually) Stripe-gated self-serve flows.
+- **Platform admins:** full control via the tenant edit page's
+  **Subscription** section — plan dropdown, status override, start /
+  restart trial, cancel at period end, cancel immediately.
+
+Writes to `subscriptions` from the app are enforced by RLS to
+`platform_admin` only; DB triggers run as `security definer` so they
+bypass RLS for auto-provisioning.
+
+### Events log
+
+`billing_events` is append-only and tracks every lifecycle change.
+Event types follow Stripe's shape so webhooks map 1:1 when Stripe
+integration lands. Read it via
+`BillingEventsService.getTenantEvents(tenantId)`.
+
+### Future Stripe integration
+
+The subscription schema ships with three fields specifically for a
+provider integration:
+
+- `external_customer_id` — Stripe customer id.
+- `external_subscription_id` — Stripe subscription id (indexed for
+  webhook lookups).
+- `metadata` JSONB — arbitrary provider payload.
+
+A webhook handler would:
+1. Look up the row by `external_subscription_id`.
+2. Update the row's `status`, `current_period_*`, `cancel_at`.
+3. Insert a matching `billing_events` row (the event type enum
+   already covers Stripe's shapes).
+
+No schema changes required.
 
 ---
 

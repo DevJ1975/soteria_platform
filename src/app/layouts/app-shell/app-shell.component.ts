@@ -1,5 +1,7 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, OnInit } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
+
+import { SubscriptionService } from '@core/services/subscription.service';
 
 import { SidebarComponent } from './sidebar/sidebar.component';
 import { TopbarComponent } from './topbar/topbar.component';
@@ -53,4 +55,21 @@ import { TopbarComponent } from './topbar/topbar.component';
     `,
   ],
 })
-export class AppShellComponent {}
+export class AppShellComponent implements OnInit {
+  private readonly subscription = inject(SubscriptionService);
+
+  /**
+   * Warm the subscription cache as soon as the authenticated shell
+   * mounts. The `billingAccessGuard` also refreshes lazily when it
+   * fires on a module route, but the dashboard and billing page don't
+   * carry the guard — loading here means the trial-countdown banner,
+   * status chips, and anything else that reads `SubscriptionService`
+   * signals render with real state on first paint.
+   */
+  ngOnInit(): void {
+    void this.subscription.refresh().catch(() => {
+      /* Shell refresh failures are non-fatal; individual pages surface
+         their own errors when they try to read. */
+    });
+  }
+}

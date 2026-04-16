@@ -16,7 +16,8 @@ export type IconName =
   | 'thermometer'
   | 'lock'
   | 'log-out'
-  | 'chevron-down';
+  | 'chevron-down'
+  | 'credit-card';
 
 @Component({
   selector: 'sot-icon',
@@ -79,6 +80,11 @@ export type IconName =
         }
         @case ('chevron-down') {
           <path d="m6 9 6 6 6-6" />
+        }
+        @case ('credit-card') {
+          <rect x="2" y="5" width="20" height="14" rx="2" />
+          <path d="M2 10h20" />
+          <path d="M6 15h4" />
         }
       }
     </svg>

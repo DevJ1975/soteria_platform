@@ -7,6 +7,7 @@ import {
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 
 import {
   ModuleKey,
@@ -26,18 +27,19 @@ import { extractErrorMessage } from '@shared/utils/errors.util';
 /**
  * Admin-only settings page for controlling module access.
  *
- * Shows the tenant's current plan, the full module catalogue with each
- * module's plan-default vs. override vs. effective state, and controls
- * for changing the plan and toggling per-module overrides.
+ * Shows the tenant's current plan (read-only, since Phase 12 — plan
+ * changes go through the billing page), the full module catalogue
+ * with each module's plan-default vs. override vs. effective state,
+ * and controls for toggling per-module overrides.
  *
- * Every mutation writes through a service and then calls
- * `ModuleRegistryService.refresh()` so the sidebar + guards pick up the
- * new state without a page reload.
+ * Override mutations write through a service and then call
+ * `ModuleRegistryService.refresh()` so the sidebar + guards pick up
+ * the new state without a page reload.
  */
 @Component({
   selector: 'sot-tenant-modules',
   standalone: true,
-  imports: [FormsModule, PageHeaderComponent],
+  imports: [FormsModule, RouterLink, PageHeaderComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <sot-page-header
@@ -54,21 +56,18 @@ import { extractErrorMessage } from '@shared/utils/errors.util';
     } @else {
       <section class="plan-card sot-card">
         <div class="plan-card__main">
-          <h2 class="plan-card__label">Current plan</h2>
-          <select
-            class="sot-input plan-card__select"
-            [ngModel]="currentPlanId()"
-            (ngModelChange)="onPlanChange($event)"
-            [disabled]="savingPlan()"
-          >
-            <option [ngValue]="null">— No plan —</option>
-            @for (p of plans(); track p.id) {
-              <option [ngValue]="p.id">{{ p.name }}</option>
-            }
-          </select>
+          <div>
+            <h2 class="plan-card__label">Current plan</h2>
+            <p class="plan-card__name">
+              {{ currentPlan()?.name ?? 'No plan assigned' }}
+            </p>
+          </div>
+          <a class="sot-btn sot-btn--ghost" routerLink="/app/billing">
+            Manage subscription →
+          </a>
         </div>
         <p class="plan-card__desc">
-          {{ currentPlan()?.description ?? 'Select a plan to see its default modules.' }}
+          {{ currentPlan()?.description ?? 'Plan changes are handled on the billing page.' }}
         </p>
         @if (currentPlanIncludedModules().length > 0) {
           <div class="plan-card__modules">
@@ -77,9 +76,6 @@ import { extractErrorMessage } from '@shared/utils/errors.util';
               <span class="plan-card__chip">{{ name }}</span>
             }
           </div>
-        }
-        @if (savingPlan()) {
-          <p class="plan-card__status">Saving…</p>
         }
       </section>
 
@@ -163,24 +159,23 @@ import { extractErrorMessage } from '@shared/utils/errors.util';
       }
 
       .plan-card__label {
-        font-size: var(--font-size-md);
+        font-size: var(--font-size-xs);
+        color: var(--color-text-subtle);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
         font-weight: 600;
+        margin-bottom: 4px;
       }
 
-      .plan-card__select {
-        max-width: 260px;
+      .plan-card__name {
+        font-size: var(--font-size-lg);
+        font-weight: 600;
+        color: var(--color-text);
       }
 
       .plan-card__desc {
         color: var(--color-text-muted);
         font-size: var(--font-size-sm);
-      }
-
-      .plan-card__status {
-        color: var(--color-text-subtle);
-        font-size: var(--font-size-sm);
-        font-style: italic;
-        margin-top: var(--space-2);
       }
 
       .plan-card__modules {
@@ -295,7 +290,6 @@ export class TenantModulesComponent implements OnInit {
   protected readonly registry = inject(ModuleRegistryService);
 
   protected readonly loading = signal(true);
-  protected readonly savingPlan = signal(false);
   /** ModuleKey currently being saved, or null. Used to disable that row. */
   protected readonly savingOverride = signal<ModuleKey | null>(null);
   protected readonly errorMessage = signal<string | null>(null);
@@ -361,25 +355,6 @@ export class TenantModulesComponent implements OnInit {
   protected overrideValue(a: TenantModuleAccess): 'none' | 'on' | 'off' {
     if (a.override === null) return 'none';
     return a.override.isEnabled ? 'on' : 'off';
-  }
-
-  protected async onPlanChange(planId: string | null): Promise<void> {
-    const tenantId = this.auth.tenantId();
-    if (!tenantId) return;
-
-    this.savingPlan.set(true);
-    this.errorMessage.set(null);
-    try {
-      await this.tenantPlan.updateTenantPlan(tenantId, planId);
-      this.currentPlanId.set(planId);
-      // Plan change ripples through effective access; re-resolve so the
-      // sidebar and this page's table refresh immediately.
-      await this.registry.refresh();
-    } catch (err) {
-      this.errorMessage.set(extractErrorMessage(err, 'Could not change plan.'));
-    } finally {
-      this.savingPlan.set(false);
-    }
   }
 
   protected async onOverrideChange(

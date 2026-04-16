@@ -51,19 +51,18 @@ export class PlatformAdminTenantsService {
       .eq('id', id)
       .maybeSingle();
     if (error) throw error;
-    return data
-      ? {
-          id: data['id'] as string,
-          name: data['name'] as string,
-          slug: data['slug'] as string,
-          status: (data['status'] as Tenant['status']) ?? 'active',
-          planId: (data['plan_id'] as string | null) ?? null,
-          createdAt: data['created_at'] as string,
-          updatedAt: data['updated_at'] as string,
-        }
-      : null;
+    return data ? mapTenantRow(data) : null;
   }
 
+  /**
+   * Creates a tenant. The `tenants_create_subscription` trigger
+   * automatically provisions a trialing subscription row + billing
+   * events on insert — no manual subscription handling needed here.
+   *
+   * `planId` on the create payload is the *initial* plan the trial
+   * runs against. Subsequent plan changes go through
+   * `PlatformAdminSubscriptionsService.changePlan`.
+   */
   async createTenant(payload: CreateTenantPayload): Promise<Tenant> {
     const { data, error } = await this.supabase.client
       .from('tenants')
@@ -76,22 +75,21 @@ export class PlatformAdminTenantsService {
       .select('id, name, slug, status, plan_id, created_at, updated_at')
       .single();
     if (error) throw error;
-    return {
-      id: data['id'] as string,
-      name: data['name'] as string,
-      slug: data['slug'] as string,
-      status: data['status'] as Tenant['status'],
-      planId: (data['plan_id'] as string | null) ?? null,
-      createdAt: data['created_at'] as string,
-      updatedAt: data['updated_at'] as string,
-    };
+    return mapTenantRow(data);
   }
 
+  /**
+   * Updates tenant identity fields (name, slug, status). Does **not**
+   * accept `planId` — plan assignment is owned by
+   * `PlatformAdminSubscriptionsService` since Phase 12, because
+   * `subscriptions.plan_id` is the source of truth and a direct write
+   * to `tenants.plan_id` gets overwritten on the next subscription
+   * update by the `sync_tenant_plan_from_subscription` trigger.
+   */
   async updateTenant(id: string, payload: UpdateTenantPayload): Promise<Tenant> {
     const row: Record<string, unknown> = {};
     if (payload.name !== undefined) row['name'] = payload.name;
     if (payload.slug !== undefined) row['slug'] = payload.slug;
-    if (payload.planId !== undefined) row['plan_id'] = payload.planId;
     if (payload.status !== undefined) row['status'] = payload.status;
 
     const { data, error } = await this.supabase.client
@@ -101,23 +99,7 @@ export class PlatformAdminTenantsService {
       .select('id, name, slug, status, plan_id, created_at, updated_at')
       .single();
     if (error) throw error;
-    return {
-      id: data['id'] as string,
-      name: data['name'] as string,
-      slug: data['slug'] as string,
-      status: data['status'] as Tenant['status'],
-      planId: (data['plan_id'] as string | null) ?? null,
-      createdAt: data['created_at'] as string,
-      updatedAt: data['updated_at'] as string,
-    };
-  }
-
-  async assignTenantPlan(tenantId: string, planId: string | null): Promise<void> {
-    const { error } = await this.supabase.client
-      .from('tenants')
-      .update({ plan_id: planId })
-      .eq('id', tenantId);
-    if (error) throw error;
+    return mapTenantRow(data);
   }
 
   /** Quick platform-level metric: how many tenants exist. */
@@ -154,6 +136,19 @@ function mapSummaryRow(row: unknown): TenantSummary {
     status: r['status'] as TenantSummary['status'],
     planId: (r['plan_id'] as string | null) ?? null,
     planName: plan?.name ?? null,
+    createdAt: r['created_at'] as string,
+    updatedAt: r['updated_at'] as string,
+  };
+}
+
+function mapTenantRow(row: unknown): Tenant {
+  const r = row as Record<string, unknown>;
+  return {
+    id: r['id'] as string,
+    name: r['name'] as string,
+    slug: r['slug'] as string,
+    status: (r['status'] as Tenant['status']) ?? 'active',
+    planId: (r['plan_id'] as string | null) ?? null,
     createdAt: r['created_at'] as string,
     updatedAt: r['updated_at'] as string,
   };

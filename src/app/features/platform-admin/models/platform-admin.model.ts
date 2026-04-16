@@ -14,14 +14,25 @@ import { ModuleKey, TenantStatus } from '@core/models';
 export interface CreateTenantPayload {
   name: string;
   slug: string;
+  /**
+   * Initial plan for the auto-provisioned trial subscription. Stored
+   * on the tenant row just long enough for the
+   * `tenants_create_subscription` trigger to pick it up; afterwards
+   * `subscriptions.plan_id` is the source of truth.
+   */
   planId?: string | null;
   status?: TenantStatus;
 }
 
+/**
+ * Note: `planId` is intentionally absent. Plan changes after tenant
+ * creation flow through `PlatformAdminSubscriptionsService.changePlan`
+ * so that the subscription record (source of truth) and the billing
+ * event log stay in sync.
+ */
 export interface UpdateTenantPayload {
   name?: string;
   slug?: string;
-  planId?: string | null;
   status?: TenantStatus;
 }
 

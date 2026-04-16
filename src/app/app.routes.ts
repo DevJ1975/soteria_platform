@@ -1,6 +1,7 @@
 import { Routes } from '@angular/router';
 
 import { authGuard } from '@core/guards/auth.guard';
+import { billingAccessGuard } from '@core/guards/billing-access.guard';
 import { moduleGuard } from '@core/guards/module.guard';
 import { platformAdminGuard } from '@core/guards/platform-admin.guard';
 import { AppShellComponent } from '@layouts/app-shell/app-shell.component';
@@ -41,6 +42,10 @@ export const APP_ROUTES: Routes = [
     canActivate: [authGuard],
     children: [
       { path: '', redirectTo: 'dashboard', pathMatch: 'full' },
+      // Dashboard, billing, and settings are always accessible so a
+      // tenant with a lapsed subscription can still see what's going
+      // on and fix it. All other module routes carry `billingAccessGuard`
+      // to block access when the subscription no longer grants it.
       {
         path: 'dashboard',
         loadChildren: () =>
@@ -49,8 +54,15 @@ export const APP_ROUTES: Routes = [
           ),
       },
       {
+        path: 'billing',
+        loadChildren: () =>
+          import('./features/billing/billing.routes').then(
+            (m) => m.BILLING_ROUTES,
+          ),
+      },
+      {
         path: 'inspections',
-        canActivate: [moduleGuard('inspections')],
+        canActivate: [billingAccessGuard, moduleGuard('inspections')],
         loadChildren: () =>
           import('./features/inspections/inspections.routes').then(
             (m) => m.INSPECTIONS_ROUTES,
@@ -58,7 +70,7 @@ export const APP_ROUTES: Routes = [
       },
       {
         path: 'equipment',
-        canActivate: [moduleGuard('equipment_checks')],
+        canActivate: [billingAccessGuard, moduleGuard('equipment_checks')],
         loadChildren: () =>
           import('./features/equipment/equipment.routes').then(
             (m) => m.EQUIPMENT_ROUTES,
@@ -66,7 +78,7 @@ export const APP_ROUTES: Routes = [
       },
       {
         path: 'corrective-actions',
-        canActivate: [moduleGuard('corrective_actions')],
+        canActivate: [billingAccessGuard, moduleGuard('corrective_actions')],
         loadChildren: () =>
           import('./features/corrective-actions/corrective-actions.routes').then(
             (m) => m.CORRECTIVE_ACTIONS_ROUTES,
@@ -74,7 +86,7 @@ export const APP_ROUTES: Routes = [
       },
       {
         path: 'incident-reports',
-        canActivate: [moduleGuard('incidents')],
+        canActivate: [billingAccessGuard, moduleGuard('incidents')],
         loadChildren: () =>
           import('./features/incident-reports/incident-reports.routes').then(
             (m) => m.INCIDENT_REPORTS_ROUTES,
@@ -82,7 +94,7 @@ export const APP_ROUTES: Routes = [
       },
       {
         path: 'training',
-        canActivate: [moduleGuard('toolbox_talks')],
+        canActivate: [billingAccessGuard, moduleGuard('toolbox_talks')],
         loadChildren: () =>
           import('./features/training/training.routes').then(
             (m) => m.TRAINING_ROUTES,
