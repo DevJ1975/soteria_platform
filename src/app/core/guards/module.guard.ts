@@ -25,8 +25,8 @@ export function moduleGuard(moduleKey: ModuleKey): CanActivateFn {
     }
 
     // Sending users back to the dashboard is the least jarring fallback
-    // when a module is disabled. In phase 2 we'll likely want a dedicated
-    // "this module is not enabled for your organization" landing page.
-    return router.createUrlTree(['/']);
+    // when a module is disabled. A dedicated "this module is not enabled
+    // for your organization" landing page can replace this later.
+    return router.createUrlTree(['/app/dashboard']);
   };
 }

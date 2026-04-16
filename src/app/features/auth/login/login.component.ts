@@ -110,7 +110,7 @@ export class LoginComponent {
 
     try {
       await this.auth.signIn(this.form.getRawValue());
-      const returnUrl = this.route.snapshot.queryParamMap.get('returnUrl') ?? '/';
+      const returnUrl = this.route.snapshot.queryParamMap.get('returnUrl') ?? '/app';
       await this.router.navigateByUrl(returnUrl);
     } catch (err) {
       this.errorMessage.set(extractMessage(err));

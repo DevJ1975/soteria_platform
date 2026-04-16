@@ -38,5 +38,5 @@ export const publicOnlyGuard: CanActivateFn = async () => {
 
   await auth.whenInitialized();
 
-  return auth.isSignedIn() ? router.createUrlTree(['/']) : true;
+  return auth.isSignedIn() ? router.createUrlTree(['/app']) : true;
 };

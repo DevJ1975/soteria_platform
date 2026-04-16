@@ -24,7 +24,7 @@ import { IconComponent } from '@shared/components/icon/icon.component';
       <div class="sidebar__section">
         <a
           class="sidebar__item"
-          routerLink="/dashboard"
+          routerLink="/app/dashboard"
           routerLinkActive="sidebar__item--active"
           [routerLinkActiveOptions]="{ exact: true }"
         >
@@ -38,7 +38,7 @@ import { IconComponent } from '@shared/components/icon/icon.component';
         @for (mod of modules(); track mod.key) {
           <a
             class="sidebar__item"
-            [routerLink]="['/', mod.route]"
+            [routerLink]="['/app', mod.route]"
             routerLinkActive="sidebar__item--active"
           >
             <sot-icon [name]="mod.icon" />

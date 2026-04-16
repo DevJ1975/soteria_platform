@@ -1,8 +1,14 @@
 import { computed, effect, inject, Injectable, signal } from '@angular/core';
 
-import { Tenant } from '../models';
+import { Tenant, UserProfile } from '../models';
 import { AuthService } from './auth.service';
 import { SupabaseService } from './supabase.service';
+
+/** Lightweight user row for pickers, dropdowns, mentions, etc. */
+export type TenantMember = Pick<
+  UserProfile,
+  'id' | 'firstName' | 'lastName' | 'email' | 'role'
+>;
 
 /**
  * Exposes the "current tenant" — the organization the signed-in user
@@ -35,6 +41,32 @@ export class TenantService {
       }
       void this.loadTenant(tenantId);
     });
+  }
+
+  /**
+   * Fetches the current tenant's roster. Scoped automatically by the
+   * `user_profiles_select_same_tenant` RLS policy — no `.eq('tenant_id', …)`
+   * needed here.
+   */
+  async getTenantMembers(): Promise<TenantMember[]> {
+    const { data, error } = await this.supabase.client
+      .from('user_profiles')
+      .select('id, first_name, last_name, email, role')
+      .order('first_name', { ascending: true });
+
+    if (error) {
+      // eslint-disable-next-line no-console
+      console.error('[Soteria] Failed to load tenant members', error);
+      return [];
+    }
+
+    return (data ?? []).map((r) => ({
+      id: r['id'] as string,
+      firstName: (r['first_name'] as string) ?? '',
+      lastName: (r['last_name'] as string) ?? '',
+      email: r['email'] as string,
+      role: r['role'] as TenantMember['role'],
+    }));
   }
 
   private async loadTenant(tenantId: string): Promise<void> {

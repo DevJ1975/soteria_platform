@@ -8,20 +8,24 @@ import { AppShellComponent } from '@layouts/app-shell/app-shell.component';
  * Top-level route table.
  *
  * Structure:
- *   /auth/*        → unauthenticated area (login, signup, etc.)
- *   everything else → authenticated shell with sidebar + topbar
+ *   /auth/*  → unauthenticated area (login, signup, password reset)
+ *   /app/*   → authenticated shell (sidebar + topbar)
+ *   /        → redirects to /app
  *
- * Each module mounts under the shell via lazy-loaded child routes and is
+ * Each module mounts under `/app/<key>` via lazy-loaded child routes and is
  * gated by a per-module guard so disabled modules return to the dashboard.
+ * Keeping `/app` as the authenticated parent leaves room for public marketing
+ * pages at the root path later without restructuring anything.
  */
 export const APP_ROUTES: Routes = [
+  { path: '', redirectTo: 'app', pathMatch: 'full' },
   {
     path: 'auth',
     loadChildren: () =>
       import('./features/auth/auth.routes').then((m) => m.AUTH_ROUTES),
   },
   {
-    path: '',
+    path: 'app',
     component: AppShellComponent,
     canActivate: [authGuard],
     children: [
@@ -59,5 +63,5 @@ export const APP_ROUTES: Routes = [
       },
     ],
   },
-  { path: '**', redirectTo: '' },
+  { path: '**', redirectTo: 'app' },
 ];
