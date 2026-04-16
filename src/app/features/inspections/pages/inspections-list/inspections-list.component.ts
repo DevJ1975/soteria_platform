@@ -10,6 +10,8 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
 import { TenantMemberLookupService } from '@core/services/tenant-member-lookup.service';
+import { CorrectiveActionsService } from '@features/corrective-actions/services/corrective-actions.service';
+import { CountBadgeComponent } from '@shared/components/count-badge/count-badge.component';
 import { EmptyStateComponent } from '@shared/components/empty-state/empty-state.component';
 import { IconComponent } from '@shared/components/icon/icon.component';
 import { PageHeaderComponent } from '@shared/components/page-header/page-header.component';
@@ -56,6 +58,7 @@ const SEARCH_DEBOUNCE_MS = 250;
     FormsModule,
     RouterLink,
     PageHeaderComponent,
+    CountBadgeComponent,
     EmptyStateComponent,
     IconComponent,
     InspectionStatusChipComponent,
@@ -193,9 +196,16 @@ const SEARCH_DEBOUNCE_MS = 250;
             @for (inspection of inspections(); track inspection.id) {
               <tr>
                 <td>
-                  <a class="table__title-link" [routerLink]="[inspection.id, 'edit']">
-                    {{ inspection.title }}
-                  </a>
+                  <div class="table__title-row">
+                    <a class="table__title-link" [routerLink]="[inspection.id, 'edit']">
+                      {{ inspection.title }}
+                    </a>
+                    <sot-count-badge
+                      [count]="openActionCounts().get(inspection.id) ?? 0"
+                      label="open"
+                      tooltip="Open corrective actions"
+                    />
+                  </div>
                   @if (inspection.description) {
                     <p class="table__description">{{ inspection.description }}</p>
                   }
@@ -277,6 +287,12 @@ const SEARCH_DEBOUNCE_MS = 250;
       .table tbody tr:last-child td { border-bottom: none; }
       .table tbody tr:hover { background: var(--color-surface-muted); }
 
+      .table__title-row {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+      }
+
       .table__title-link {
         font-weight: 600;
         color: var(--color-text);
@@ -307,11 +323,13 @@ const SEARCH_DEBOUNCE_MS = 250;
 })
 export class InspectionsListComponent implements OnInit {
   private readonly service = inject(InspectionsService);
+  private readonly caService = inject(CorrectiveActionsService);
   protected readonly lookup = inject(TenantMemberLookupService);
   private readonly guard = createGenerationGuard();
   private readonly debounceSearch = createDebouncer(SEARCH_DEBOUNCE_MS);
 
   protected readonly inspections = signal<Inspection[]>([]);
+  protected readonly openActionCounts = signal<ReadonlyMap<string, number>>(new Map());
   protected readonly loading = signal(false);
   protected readonly errorMessage = signal<string | null>(null);
   protected readonly filters = signal<InspectionFilters>({});
@@ -342,6 +360,14 @@ export class InspectionsListComponent implements OnInit {
     // Fire the roster load in parallel — the lookup is a cached singleton
     // so multiple list pages share one fetch per session.
     void this.lookup.ensureLoaded();
+    // Load the open-action counts in parallel with the main refresh.
+    // Counts aren't reactive to CA changes made elsewhere — they
+    // refresh on ngOnInit, which covers the "user added an action then
+    // navigated back" case via Angular's default route re-init.
+    void this.caService
+      .getOpenCountsByInspection()
+      .then((m) => this.openActionCounts.set(m))
+      .catch(() => void 0); // counts are a nice-to-have; don't fail the page on error
     await this.refresh();
   }
 

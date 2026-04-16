@@ -52,3 +52,49 @@ export function formatDateTime(iso: string): string {
     timeStyle: 'short',
   });
 }
+
+/**
+ * Relative-time formatter — "2h ago", "in 3d", "just now", etc.
+ * Handles both past and future times. Used on surfaces where "how long
+ * ago" matters more than the exact timestamp (recent-activity feeds,
+ * notifications, chat).
+ */
+export function formatRelativeTime(iso: string): string {
+  const delta = Date.now() - new Date(iso).getTime();
+  const abs = Math.abs(delta);
+  const future = delta < 0;
+
+  const minute = 60_000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  const week = 7 * day;
+
+  if (abs < 45_000) return 'just now';
+  if (abs < hour) return formatUnit(abs / minute, 'm', future);
+  if (abs < day) return formatUnit(abs / hour, 'h', future);
+  if (abs < week) return formatUnit(abs / day, 'd', future);
+  if (abs < 30 * day) return formatUnit(abs / week, 'w', future);
+  if (abs < 365 * day) return formatUnit(abs / (30 * day), 'mo', future);
+  return formatUnit(abs / (365 * day), 'y', future);
+}
+
+/**
+ * Hybrid relative/absolute date for recent-activity rows.
+ *
+ * Uses relative time when the event is within the last 7 days (the most
+ * scannable form for "recent") and switches to an absolute short date
+ * ("Apr 16") for anything older. Matches the GitHub/Slack pattern.
+ */
+export function formatActivityDate(iso: string): string {
+  const diffDays = Math.abs(Date.now() - new Date(iso).getTime()) / (24 * 60 * 60 * 1000);
+  if (diffDays < 7) return formatRelativeTime(iso);
+  return new Date(iso).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
+function formatUnit(value: number, suffix: string, future: boolean): string {
+  const n = Math.max(1, Math.floor(value));
+  return future ? `in ${n}${suffix}` : `${n}${suffix} ago`;
+}

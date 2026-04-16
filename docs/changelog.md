@@ -8,9 +8,235 @@ What's shipped, in reverse chronological order.
 
 ---
 
-## 2026-04-16 — Phase 8: Cross-module corrective-action linkage
+## 2026-04-16 — Phase 9 review 2: Dashboard state correctness
 
 Not committed yet at time of writing.
+
+Second review pass — found two real gaps the first pass missed.
+Both were about distinguishing "no data yet" from "still loading"
+from "failed to load".
+
+### Loading vs. empty ambiguity
+
+Before: `RecentActivityCardComponent` rendered the empty state
+("No recent incident reports.") as soon as `count === 0`, which
+is the state the page is in *before* any fetch completes. Users
+saw "no data" flash during the initial paint, then the real data
+slide in a beat later — a false-negative first impression.
+
+After: card has a `loading` input. When true it renders a
+"Loading…" placeholder; when false and `count === 0`, the empty
+state. Dashboard starts every section in `loading = true` and
+flips it off in the `finally` of each fetch.
+
+### Silent per-card failures hid real data
+
+Before: individual recent-list fetches caught errors silently. A
+user whose incidents list failed saw "No recent incident reports"
+— identical to an empty tenant. Data-integrity issue.
+
+After: card has an `errorLabel` input. On fetch failure, the
+dashboard sets `state.error` to "Could not load. Refresh to try
+again." which renders as a subtle red in-card panel (not a
+page-level alert — one failed list shouldn't black out the
+dashboard).
+
+### State precedence
+
+The card now picks exactly one of four render modes:
+
+  1. `errorLabel` set → in-card error message
+  2. `loading` true → "Loading…" placeholder
+  3. `count === 0` → empty state
+  4. default → projected `<ng-content>`
+
+### Implementation
+
+- `SectionState` helper groups each card's loading + error signals
+  into one object, so the template reads `incidents.loading()`
+  and the load method takes `SectionState` + `WritableSignal<T[]>`
+  + `() => Promise<T[]>`.
+- One `loadSection()` method replaces the four nearly-identical
+  try/catch blocks.
+- Stats loading is still handled as a single critical-path load
+  whose failure surfaces in the page-level alert (the KPI row is
+  the primary content and "KPIs all show zero" is more confusing
+  than "couldn't load").
+
+---
+
+## 2026-04-16 — Phase 9 review: Dashboard polish
+
+Not committed yet at time of writing.
+
+### Refactor: RecentActivityCardComponent
+
+The four "recent activity" cards (incidents / CAs / inspections /
+training) were ~80 lines of repeated template — identical card shells
+with different row content. Extracted the shell to
+[`components/recent-activity-card`](../src/app/features/dashboard/components/recent-activity-card/recent-activity-card.component.ts):
+
+- Inputs: `title`, `viewAllLink`, `count`, `emptyLabel`.
+- Renders the card chrome (title, "View all →" link, empty state).
+- Host passes rows via `<ng-content>`; content only renders when
+  `count > 0`.
+
+Dashboard template drops ~80 lines and gets one place to style every
+activity card consistently.
+
+### UX: relative dates on recent rows
+
+Raw timestamps ("Apr 16, 2026, 2:30 PM") don't scan well on a recent-
+activity list. Added two helpers to [`shared/utils/date.util.ts`](../src/app/shared/utils/date.util.ts):
+
+- `formatRelativeTime(iso)` — "2h ago", "in 3d", "just now", handles
+  past and future.
+- `formatActivityDate(iso)` — hybrid: relative for <7 days, compact
+  absolute ("Apr 16") for older. Matches the GitHub/Slack pattern.
+
+Dashboard activity rows now use `formatActivityDate` instead of
+`formatDateTime`.
+
+### KPI reordering
+
+KPI row now reads urgency-first: Overdue actions → Open incidents →
+Failed checks → Open CAs → Recent inspections → Training. The user's
+eye lands on the scariest number first. `StatTile`'s existing trend
+indicator (red helper text on down) continues to color only the
+needs-attention metrics.
+
+### Style polish
+
+- `.row` in activity lists gets a `background-color` hover in addition
+  to the border change — better clickability affordance.
+- `.row__date` uses `tabular-nums` so "2h ago" / "12h ago" align in
+  the column.
+- `.kpi-link` gets a proper `:focus-visible` outline so keyboard
+  navigation is visible.
+
+### Not changed
+
+- **9 parallel queries on load** — still fine at this data shape;
+  HTTP/2 multiplexes, total latency <200ms. RPC is a future
+  optimization when we hit 20+ metrics.
+- **No caching / real-time refresh** — dashboard data is fine at
+  seconds-stale; users hit it infrequently enough.
+- **No trend charts** — current data is count-oriented snapshots;
+  trends need a rollup table with daily snapshots. Out of scope.
+- **No loading spinner** — zero values render for <200ms before data
+  arrives; not worth the spinner complexity.
+
+---
+
+## 2026-04-16 — Phase 9: Dashboard + analytics
+
+Not committed yet at time of writing.
+
+The first page every user sees on sign-in now actually does something.
+Six KPI cards pulling aggregate data from five module-specific SQL
+views, plus four "recent activity" cards showing the latest items per
+module. No charts, no bar graphs — operational snapshot, not
+dashboard-porn.
+
+### Data strategy
+
+- **SQL views** for the KPIs. One view per module with a handful of
+  `count(*) filter (where …)` aggregates grouped by `tenant_id`.
+  Security-scoped via `security_invoker = on` (PG15+) so the views
+  obey the underlying tables' RLS policies.
+- **Existing-style table queries** with `.order().limit()` for the
+  "recent activity" lists. Narrow projections (just the fields the
+  cards show) keep payloads small.
+- **Not an RPC** — tempting for the one-round-trip win, but 5 small
+  views in parallel is already fast and views compose better as we
+  evolve. RPC makes sense when we're 20+ metrics deep.
+
+### Schema
+
+SQL migration [`20260416120012_dashboard_summary_views.sql`](../supabase/migrations/20260416120012_dashboard_summary_views.sql):
+
+- `dashboard_corrective_action_summary` — open / overdue / completed
+- `dashboard_inspection_summary` — total / completed_recent (last 30d) / open
+- `dashboard_incident_summary` — open / closed / high-severity open
+- `dashboard_equipment_check_summary` — failed / passed_recent
+- `dashboard_training_summary` — recent_sessions / total_attendance (left-joins attendance for the person-session count)
+
+All five declared with `with (security_invoker = on)`. `grant select …
+to authenticated` so PostgREST can target them from the app role;
+actual authorization is the RLS policies on the underlying tables.
+
+### Angular
+
+- `dashboard.model.ts` — `DashboardStats` with a nested shape per
+  module, slim `Recent*` projections for the activity cards,
+  `EMPTY_DASHBOARD_STATS` initial value for brand-new tenants.
+- `DashboardService` — `getStats()` runs the five view queries in
+  parallel; `getRecentX()` helpers hit each module table with
+  `.order().limit()`. Fails soft on missing tenant context so the
+  dashboard never hard-errors during session init.
+- `DashboardComponent` rewritten: KPI row driven by real data, four
+  recent-activity cards (incidents / CAs / inspections / training),
+  each with its own chip and a "View all →" link. All six KPI cards
+  are clickable and deep-link to the relevant list. Every query runs
+  in parallel in `ngOnInit` — perceived load time is the longest
+  single query, not the sum.
+
+### Known gaps / future work
+
+- No date-range filter yet. Views use a 30-day "recent" window; when
+  we add a picker we'll parameterize via SQL functions.
+- No per-site filtering. Views group only by tenant; adding `site_id`
+  is a one-line change per view.
+- No trend widgets (line charts etc.). Current data surface is
+  count-oriented — charts would be overfitting for what we have.
+
+---
+
+## 2026-04-16 — Open-issues badges on list pages
+
+Not committed yet at time of writing.
+
+### New shared component
+
+- [`src/app/shared/components/count-badge/count-badge.component.ts`](../src/app/shared/components/count-badge/count-badge.component.ts) —
+  small amber chip that renders **nothing** when count is 0, a compact
+  "N label" indicator when > 0. Inputs: `count`, `label`, `tooltip`.
+  The renders-nothing-on-zero behavior is intentional — a sea of "0
+  open" chips would be noise.
+
+### Batch count service methods
+
+Every per-row count was already available via `getOpenCountByX(id)`,
+but calling that per-row would N+1 the page. Added batch counterparts
+that return a `ReadonlyMap<id, count>` from one round-trip, groupable
+client-side into O(1) lookups in the template:
+
+- `CorrectiveActionsService.getOpenCountsByInspection()`
+- `CorrectiveActionsService.getOpenCountsByIncidentReport()`
+- `EquipmentChecksService.getActionableCountsByEquipment()`
+
+Behind both CA methods sits one small private helper
+(`openCountsByLink(column)`) that keeps the grouping logic DRY.
+
+### Badges on three list pages
+
+- **Inspections list** — "N open" chip next to the title when the
+  inspection has at least one open corrective action.
+- **Incident reports list** — same treatment next to the report title.
+- **Equipment list** — "N actionable" chip next to the equipment name
+  when the asset has at least one failed or needs-attention check.
+
+Each list fires the count query in parallel with its main refresh in
+`ngOnInit`. Counts refresh on page re-init (standard Angular route
+re-init covers the "user added an action then came back" case).
+Errors on the count query are swallowed — the badges are a
+nice-to-have; they must never fail the page load.
+
+---
+
+## 2026-04-16 — Phase 8: Cross-module corrective-action linkage
+
+Shipped in commit [`9e7e90b`](https://github.com/DevJ1975/soteria_platform/commit/9e7e90b).
 
 The long-promised cross-module story: any finding — from an inspection,
 an incident report, or an equipment check — can now spawn a tracked

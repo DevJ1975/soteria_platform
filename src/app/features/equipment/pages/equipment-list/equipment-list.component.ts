@@ -9,6 +9,7 @@ import {
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
+import { CountBadgeComponent } from '@shared/components/count-badge/count-badge.component';
 import { EmptyStateComponent } from '@shared/components/empty-state/empty-state.component';
 import { IconComponent } from '@shared/components/icon/icon.component';
 import { PageHeaderComponent } from '@shared/components/page-header/page-header.component';
@@ -28,6 +29,7 @@ import {
   EquipmentType,
 } from '../../models/equipment.model';
 import { EquipmentService } from '../../services/equipment.service';
+import { EquipmentChecksService } from '../../services/equipment-checks.service';
 
 const SEARCH_DEBOUNCE_MS = 250;
 
@@ -50,6 +52,7 @@ const SEARCH_DEBOUNCE_MS = 250;
     FormsModule,
     RouterLink,
     PageHeaderComponent,
+    CountBadgeComponent,
     EmptyStateComponent,
     IconComponent,
     EquipmentStatusChipComponent,
@@ -166,9 +169,16 @@ const SEARCH_DEBOUNCE_MS = 250;
             @for (item of equipment(); track item.id) {
               <tr>
                 <td>
-                  <a class="table__title-link" [routerLink]="[item.id]">
-                    {{ item.name }}
-                  </a>
+                  <div class="table__title-row">
+                    <a class="table__title-link" [routerLink]="[item.id]">
+                      {{ item.name }}
+                    </a>
+                    <sot-count-badge
+                      [count]="actionableCounts().get(item.id) ?? 0"
+                      label="actionable"
+                      tooltip="Open check findings"
+                    />
+                  </div>
                   @if (item.manufacturer || item.model) {
                     <p class="table__sub">
                       {{ item.manufacturer }}{{ item.manufacturer && item.model ? ' · ' : '' }}{{ item.model }}
@@ -246,6 +256,12 @@ const SEARCH_DEBOUNCE_MS = 250;
       .table tbody tr:last-child td { border-bottom: none; }
       .table tbody tr:hover { background: var(--color-surface-muted); }
 
+      .table__title-row {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+      }
+
       .table__title-link {
         font-weight: 600;
         color: var(--color-text);
@@ -277,10 +293,12 @@ const SEARCH_DEBOUNCE_MS = 250;
 })
 export class EquipmentListComponent implements OnInit {
   private readonly service = inject(EquipmentService);
+  private readonly checksService = inject(EquipmentChecksService);
   private readonly guard = createGenerationGuard();
   private readonly debounceSearch = createDebouncer(SEARCH_DEBOUNCE_MS);
 
   protected readonly equipment = signal<Equipment[]>([]);
+  protected readonly actionableCounts = signal<ReadonlyMap<string, number>>(new Map());
   protected readonly loading = signal(false);
   protected readonly errorMessage = signal<string | null>(null);
   protected readonly filters = signal<EquipmentFilters>({});
@@ -306,6 +324,10 @@ export class EquipmentListComponent implements OnInit {
     EQUIPMENT_TYPE_LABEL[item.equipmentType] ?? item.equipmentType;
 
   async ngOnInit(): Promise<void> {
+    void this.checksService
+      .getActionableCountsByEquipment()
+      .then((m) => this.actionableCounts.set(m))
+      .catch(() => void 0); // counts are nice-to-have; don't fail the page
     await this.refresh();
   }
 

@@ -10,6 +10,8 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
 import { TenantMemberLookupService } from '@core/services/tenant-member-lookup.service';
+import { CorrectiveActionsService } from '@features/corrective-actions/services/corrective-actions.service';
+import { CountBadgeComponent } from '@shared/components/count-badge/count-badge.component';
 import { EmptyStateComponent } from '@shared/components/empty-state/empty-state.component';
 import { IconComponent } from '@shared/components/icon/icon.component';
 import { PageHeaderComponent } from '@shared/components/page-header/page-header.component';
@@ -49,6 +51,7 @@ const SEARCH_DEBOUNCE_MS = 250;
     FormsModule,
     RouterLink,
     PageHeaderComponent,
+    CountBadgeComponent,
     EmptyStateComponent,
     IconComponent,
     IncidentReportSeverityChipComponent,
@@ -200,9 +203,16 @@ const SEARCH_DEBOUNCE_MS = 250;
             @for (report of reports(); track report.id) {
               <tr>
                 <td>
-                  <a class="table__title-link" [routerLink]="[report.id]">
-                    {{ report.title }}
-                  </a>
+                  <div class="table__title-row">
+                    <a class="table__title-link" [routerLink]="[report.id]">
+                      {{ report.title }}
+                    </a>
+                    <sot-count-badge
+                      [count]="openActionCounts().get(report.id) ?? 0"
+                      label="open"
+                      tooltip="Open corrective actions"
+                    />
+                  </div>
                   <p class="table__sub">
                     Reported by {{ lookup.formatName(report.reportedBy) }}
                   </p>
@@ -280,6 +290,12 @@ const SEARCH_DEBOUNCE_MS = 250;
       .table tbody tr:last-child td { border-bottom: none; }
       .table tbody tr:hover { background: var(--color-surface-muted); }
 
+      .table__title-row {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+      }
+
       .table__title-link {
         font-weight: 600;
         color: var(--color-text);
@@ -310,11 +326,13 @@ const SEARCH_DEBOUNCE_MS = 250;
 })
 export class IncidentReportsListComponent implements OnInit {
   private readonly service = inject(IncidentReportsService);
+  private readonly caService = inject(CorrectiveActionsService);
   protected readonly lookup = inject(TenantMemberLookupService);
   private readonly guard = createGenerationGuard();
   private readonly debounceSearch = createDebouncer(SEARCH_DEBOUNCE_MS);
 
   protected readonly reports = signal<IncidentReport[]>([]);
+  protected readonly openActionCounts = signal<ReadonlyMap<string, number>>(new Map());
   protected readonly loading = signal(false);
   protected readonly errorMessage = signal<string | null>(null);
   protected readonly filters = signal<IncidentReportFilters>({});
@@ -349,6 +367,10 @@ export class IncidentReportsListComponent implements OnInit {
 
   async ngOnInit(): Promise<void> {
     void this.lookup.ensureLoaded();
+    void this.caService
+      .getOpenCountsByIncidentReport()
+      .then((m) => this.openActionCounts.set(m))
+      .catch(() => void 0); // counts are nice-to-have; don't fail the page
     await this.refresh();
   }
 

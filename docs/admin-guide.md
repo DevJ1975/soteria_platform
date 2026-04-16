@@ -199,6 +199,7 @@ Current migrations:
 | `20260416120009_training.sql` | `training_sessions` + `training_attendance` tables, indexes, cross-tenant alignment trigger, RLS (select tenant, write staff, delete admin on sessions; write staff on attendance). |
 | `20260416120010_enable_toolbox_talks_module.sql` | Same three-step activation as incidents: flip `is_available`, backfill, extend trigger. |
 | `20260416120011_corrective_actions_cross_module_linkage.sql` | Adds `incident_report_id` and `equipment_check_id` FKs on `corrective_actions`. Replaces the inspection-only cross-tenant trigger with a unified one that validates all three linkage FKs. |
+| `20260416120012_dashboard_summary_views.sql` | Five aggregate views (one per module) powering the dashboard KPI row. Declared with `security_invoker = on` so they inherit the underlying tables' RLS. |
 
 ---
 

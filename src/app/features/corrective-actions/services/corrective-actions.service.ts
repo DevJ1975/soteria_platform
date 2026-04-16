@@ -127,6 +127,23 @@ export class CorrectiveActionsService {
     return this.openCountByLink('equipment_check_id', equipmentCheckId);
   }
 
+  /**
+   * Batch version of `getOpenCountByInspection` shaped for list pages:
+   * one query returns id → count for every inspection in the tenant
+   * with at least one open action. O(1) lookup per row in the template.
+   *
+   * Avoids the N+1 that calling the single-count method per row would
+   * produce on a list of inspections.
+   */
+  async getOpenCountsByInspection(): Promise<ReadonlyMap<string, number>> {
+    return this.openCountsByLink('inspection_id');
+  }
+
+  /** Batch counterpart for the incident-reports list. */
+  async getOpenCountsByIncidentReport(): Promise<ReadonlyMap<string, number>> {
+    return this.openCountsByLink('incident_report_id');
+  }
+
   async createCorrectiveAction(
     payload: CreateCorrectiveActionPayload,
   ): Promise<CorrectiveAction> {
@@ -240,6 +257,32 @@ export class CorrectiveActionsService {
       .in('status', [...OPEN_CORRECTIVE_ACTION_STATUSES]);
     if (error) throw error;
     return count ?? 0;
+  }
+
+  /**
+   * Pulls just the linkage column for all open actions in the tenant
+   * and groups by id client-side. One round-trip regardless of how
+   * many parent rows the list page is about to render.
+   */
+  private async openCountsByLink(
+    column: 'inspection_id' | 'incident_report_id' | 'equipment_check_id',
+  ): Promise<ReadonlyMap<string, number>> {
+    const tenantId = this.requireTenantId();
+    const { data, error } = await this.supabase.client
+      .from('corrective_actions')
+      .select(column)
+      .eq('tenant_id', tenantId)
+      .not(column, 'is', null)
+      .in('status', [...OPEN_CORRECTIVE_ACTION_STATUSES]);
+    if (error) throw error;
+
+    const counts = new Map<string, number>();
+    for (const row of data ?? []) {
+      const id = (row as Record<string, string | null>)[column];
+      if (!id) continue;
+      counts.set(id, (counts.get(id) ?? 0) + 1);
+    }
+    return counts;
   }
 
   private requireTenantId(): string {

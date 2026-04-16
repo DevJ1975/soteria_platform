@@ -68,8 +68,7 @@ export class EquipmentChecksService {
 
   /**
    * Counts actionable (fail + needs_attention) checks for an equipment
-   * item. Shape for the future "X open issues" badge on the equipment
-   * list. Cheap because of the `(equipment_id, performed_at desc)` index.
+   * item. Cheap because of the `(equipment_id, performed_at desc)` index.
    */
   async getActionableCountByEquipment(equipmentId: string): Promise<number> {
     const tenantId = this.requireTenantId();
@@ -81,6 +80,29 @@ export class EquipmentChecksService {
       .in('status', [...ACTIONABLE_EQUIPMENT_CHECK_STATUSES]);
     if (error) throw error;
     return count ?? 0;
+  }
+
+  /**
+   * Batch version shaped for the equipment list: one round-trip returns
+   * a map of equipmentId → actionable-check count for every asset in
+   * the tenant that currently has actionable findings. O(1) lookup per
+   * row in the template — avoids the N+1 that per-row counts would hit.
+   */
+  async getActionableCountsByEquipment(): Promise<ReadonlyMap<string, number>> {
+    const tenantId = this.requireTenantId();
+    const { data, error } = await this.supabase.client
+      .from('equipment_checks')
+      .select('equipment_id')
+      .eq('tenant_id', tenantId)
+      .in('status', [...ACTIONABLE_EQUIPMENT_CHECK_STATUSES]);
+    if (error) throw error;
+
+    const counts = new Map<string, number>();
+    for (const row of data ?? []) {
+      const id = (row as { equipment_id: string }).equipment_id;
+      counts.set(id, (counts.get(id) ?? 0) + 1);
+    }
+    return counts;
   }
 
   async createCheck(payload: CreateEquipmentCheckPayload): Promise<EquipmentCheck> {
