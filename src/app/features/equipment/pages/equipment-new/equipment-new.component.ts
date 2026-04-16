@@ -2,7 +2,10 @@ import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/cor
 import { Router } from '@angular/router';
 
 import { PageHeaderComponent } from '@shared/components/page-header/page-header.component';
-import { extractErrorMessage } from '@shared/utils/errors.util';
+import {
+  extractErrorMessage,
+  isUniqueViolation,
+} from '@shared/utils/errors.util';
 
 import { EquipmentFormComponent } from '../../components/equipment-form/equipment-form.component';
 import { CreateEquipmentPayload } from '../../models/equipment.model';
@@ -46,9 +49,15 @@ export class EquipmentNewComponent {
       // Go to the detail page so the user can start recording checks.
       await this.router.navigate(['/app/equipment', created.id]);
     } catch (err) {
-      this.errorMessage.set(
-        extractErrorMessage(err, 'Could not create equipment.'),
-      );
+      if (isUniqueViolation(err, 'equipment_tenant_asset_tag_uq')) {
+        this.errorMessage.set(
+          'An asset with this tag already exists in your organization. Pick a different tag.',
+        );
+      } else {
+        this.errorMessage.set(
+          extractErrorMessage(err, 'Could not create equipment.'),
+        );
+      }
     } finally {
       this.submitting.set(false);
     }

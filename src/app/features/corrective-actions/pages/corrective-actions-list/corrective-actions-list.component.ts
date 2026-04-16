@@ -9,7 +9,7 @@ import {
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
-import { TenantMember, TenantService } from '@core/services/tenant.service';
+import { TenantMemberLookupService } from '@core/services/tenant-member-lookup.service';
 import { EmptyStateComponent } from '@shared/components/empty-state/empty-state.component';
 import { IconComponent } from '@shared/components/icon/icon.component';
 import { PageHeaderComponent } from '@shared/components/page-header/page-header.component';
@@ -118,7 +118,7 @@ const SEARCH_DEBOUNCE_MS = 250;
         >
           <option value="all">Everyone</option>
           <option value="me">Assigned to me</option>
-          @for (m of members(); track m.id) {
+          @for (m of lookup.members(); track m.id) {
             <option [value]="m.id">{{ m.firstName }} {{ m.lastName }}</option>
           }
         </select>
@@ -204,7 +204,7 @@ const SEARCH_DEBOUNCE_MS = 250;
                 </td>
                 <td><sot-corrective-action-status-chip [status]="action.status" /></td>
                 <td><sot-corrective-action-priority-chip [priority]="action.priority" /></td>
-                <td>{{ assigneeName(action.assignedTo) }}</td>
+                <td>{{ lookup.formatName(action.assignedTo) }}</td>
                 <td>{{ action.dueDate ?? '—' }}</td>
                 <td class="table__actions">
                   <a
@@ -308,12 +308,11 @@ const SEARCH_DEBOUNCE_MS = 250;
 })
 export class CorrectiveActionsListComponent implements OnInit {
   private readonly service = inject(CorrectiveActionsService);
-  private readonly tenants = inject(TenantService);
+  protected readonly lookup = inject(TenantMemberLookupService);
   private readonly guard = createGenerationGuard();
   private readonly debounceSearch = createDebouncer(SEARCH_DEBOUNCE_MS);
 
   protected readonly actions = signal<CorrectiveAction[]>([]);
-  protected readonly members = signal<TenantMember[]>([]);
   protected readonly loading = signal(false);
   protected readonly errorMessage = signal<string | null>(null);
   protected readonly filters = signal<CorrectiveActionFilters>({});
@@ -328,14 +327,6 @@ export class CorrectiveActionsListComponent implements OnInit {
     );
   });
 
-  private readonly memberLookup = computed(() => {
-    const map = new Map<string, string>();
-    for (const m of this.members()) {
-      map.set(m.id, `${m.firstName} ${m.lastName}`.trim() || m.email);
-    }
-    return map;
-  });
-
   protected readonly statusOptions = (
     Object.keys(CORRECTIVE_ACTION_STATUS_LABEL) as CorrectiveActionStatus[]
   ).map((value) => ({ value, label: CORRECTIVE_ACTION_STATUS_LABEL[value] }));
@@ -344,11 +335,8 @@ export class CorrectiveActionsListComponent implements OnInit {
     Object.keys(CORRECTIVE_ACTION_PRIORITY_LABEL) as CorrectiveActionPriority[]
   ).map((value) => ({ value, label: CORRECTIVE_ACTION_PRIORITY_LABEL[value] }));
 
-  protected readonly assigneeName = (id: string | null): string =>
-    id ? this.memberLookup().get(id) ?? 'Unknown' : 'Unassigned';
-
   async ngOnInit(): Promise<void> {
-    void this.tenants.getTenantMembers().then((rows) => this.members.set(rows));
+    void this.lookup.ensureLoaded();
     await this.refresh();
   }
 

@@ -8,6 +8,58 @@ What's shipped, in reverse chronological order.
 
 ---
 
+## 2026-04-16 — Phase 5 review: Equipment hardening
+
+Not committed yet at time of writing.
+
+### Correctness fixes
+
+- **PostgREST `.or()` comma bug** in `EquipmentService.getEquipment` —
+  search term interpolated directly into a `name.ilike.…,asset_tag.ilike.…`
+  filter, so a comma in user input would create a phantom third filter.
+  New `sanitizeOrFilterTerm()` util strips commas and double quotes (the
+  two delimiters PostgREST uses in filter lists) before
+  `escapeIlikePattern()` handles SQL wildcards.
+- **`performed_at` accepted future dates** — the datetime-local input now
+  has a `max` attribute set to now-at-render, so the browser picker
+  refuses future selections. (Still bypassable via devtools, but the
+  visible affordance matters for honest users; the server has no
+  equivalent check yet — add a CHECK constraint if abuse surfaces.)
+- **Duplicate asset_tag surfaced a raw Postgres error.** New
+  `isUniqueViolation()` helper in errors.util detects code `23505` and
+  (optionally) matches on constraint name. Equipment new/edit pages now
+  return "An asset with this tag already exists" instead of the wire-
+  level message.
+
+### Refactor: TenantMemberLookupService
+
+- The "resolve user id → name" + "members signal for dropdowns" pattern
+  was duplicated in five places (inspections list, inspections form,
+  corrective actions list, corrective actions form, equipment checks
+  panel). Each called `TenantService.getTenantMembers()` separately, so
+  opening the CA list + editing an inspection + viewing an equipment
+  item fetched the roster three times.
+- New `@core/services/tenant-member-lookup.service.ts` exposes a
+  cached, reactive member map:
+  - `ensureLoaded()` — single-flight loader, shared across consumers.
+  - `members` — sorted signal for dropdowns.
+  - `formatName(id, fallback?)` — safe to call before the cache loads
+    (returns 'Unassigned' / 'Unknown'); updates reactively when data
+    arrives.
+  - `reset()` — cache invalidator for a future tenant-switch flow.
+- All five call sites refactored. Net: one fetch per session, one
+  formatter to update, one behavior to test.
+
+### UX polish
+
+- **Equipment list** — removed the redundant "View" action button; the
+  title column already links to the detail page.
+- **Equipment checks panel** — header now shows an "N actionable" count
+  (in the warning color) computed client-side from loaded rows. No
+  extra query. Invisible when count is 0 so the quiet path stays quiet.
+
+---
+
 ## 2026-04-16 — Phase 5: Equipment + Equipment Checks
 
 Not committed yet at time of writing.

@@ -10,7 +10,7 @@ import {
 } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 
-import { TenantMember, TenantService } from '@core/services/tenant.service';
+import { TenantMemberLookupService } from '@core/services/tenant-member-lookup.service';
 import { Inspection } from '@features/inspections/models/inspection.model';
 import { InspectionsService } from '@features/inspections/services/inspections.service';
 
@@ -105,7 +105,7 @@ const DESCRIPTION_MAX = 2000;
           <label class="sot-label" for="assignedTo">Assigned to</label>
           <select id="assignedTo" class="sot-input" formControlName="assignedTo">
             <option [ngValue]="null">— Unassigned —</option>
-            @for (m of members(); track m.id) {
+            @for (m of lookup.members(); track m.id) {
               <option [ngValue]="m.id">
                 {{ m.firstName }} {{ m.lastName }} ({{ m.email }})
               </option>
@@ -226,7 +226,7 @@ const DESCRIPTION_MAX = 2000;
 })
 export class CorrectiveActionFormComponent implements OnInit {
   private readonly fb = inject(FormBuilder);
-  private readonly tenants = inject(TenantService);
+  protected readonly lookup = inject(TenantMemberLookupService);
   private readonly inspectionsService = inject(InspectionsService);
 
   readonly initialValue = input<CorrectiveAction | null>(null);
@@ -237,7 +237,6 @@ export class CorrectiveActionFormComponent implements OnInit {
   readonly submitted = output<CreateCorrectiveActionPayload>();
   readonly cancelled = output<void>();
 
-  protected readonly members = signal<TenantMember[]>([]);
   protected readonly inspections = signal<Array<Pick<Inspection, 'id' | 'title'>>>([]);
 
   protected readonly titleMax = TITLE_MAX;
@@ -300,16 +299,12 @@ export class CorrectiveActionFormComponent implements OnInit {
   }
 
   async ngOnInit(): Promise<void> {
-    // Load the picker data in parallel — both calls are RLS-scoped so
-    // we never see other tenants' rows.
-    const [members, inspections] = await Promise.all([
-      this.tenants.getTenantMembers(),
-      this.inspectionsService
-        .getInspections()
-        .then((rows) => rows.map((r) => ({ id: r.id, title: r.title }))),
-    ]);
-    this.members.set(members);
-    this.inspections.set(inspections);
+    // Roster comes from the shared lookup service — cached and reactive,
+    // so templates bind to lookup.members(). Inspections are still loaded
+    // here because they're a per-form concern.
+    void this.lookup.ensureLoaded();
+    const rows: Inspection[] = await this.inspectionsService.getInspections();
+    this.inspections.set(rows.map((r: Inspection) => ({ id: r.id, title: r.title })));
   }
 
   protected showError(name: keyof typeof this.form.controls): boolean {

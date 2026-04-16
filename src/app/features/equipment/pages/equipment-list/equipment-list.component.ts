@@ -181,11 +181,6 @@ const SEARCH_DEBOUNCE_MS = 250;
                 <td class="table__actions">
                   <a
                     class="sot-btn sot-btn--ghost table__btn"
-                    [routerLink]="[item.id]"
-                    aria-label="View equipment"
-                  >View</a>
-                  <a
-                    class="sot-btn sot-btn--ghost table__btn"
                     [routerLink]="[item.id, 'edit']"
                     aria-label="Edit equipment"
                   >Edit</a>

@@ -9,7 +9,10 @@ import {
 import { Router } from '@angular/router';
 
 import { PageHeaderComponent } from '@shared/components/page-header/page-header.component';
-import { extractErrorMessage } from '@shared/utils/errors.util';
+import {
+  extractErrorMessage,
+  isUniqueViolation,
+} from '@shared/utils/errors.util';
 
 import { EquipmentFormComponent } from '../../components/equipment-form/equipment-form.component';
 import {
@@ -100,9 +103,15 @@ export class EquipmentEditComponent implements OnInit {
       this.equipment.set(updated);
       await this.router.navigate(['/app/equipment', this.id()]);
     } catch (err) {
-      this.errorMessage.set(
-        extractErrorMessage(err, 'Could not save changes. Please try again.'),
-      );
+      if (isUniqueViolation(err, 'equipment_tenant_asset_tag_uq')) {
+        this.errorMessage.set(
+          'An asset with this tag already exists in your organization. Pick a different tag.',
+        );
+      } else {
+        this.errorMessage.set(
+          extractErrorMessage(err, 'Could not save changes. Please try again.'),
+        );
+      }
     } finally {
       this.submitting.set(false);
     }

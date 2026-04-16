@@ -4,7 +4,6 @@ import {
   effect,
   inject,
   input,
-  OnInit,
   output,
   signal,
 } from '@angular/core';
@@ -14,7 +13,7 @@ import {
   Validators,
 } from '@angular/forms';
 
-import { TenantMember, TenantService } from '@core/services/tenant.service';
+import { TenantMemberLookupService } from '@core/services/tenant-member-lookup.service';
 
 import {
   CreateInspectionPayload,
@@ -118,7 +117,7 @@ const DESCRIPTION_MAX = 2000;
           <label class="sot-label" for="assignedTo">Assigned to</label>
           <select id="assignedTo" class="sot-input" formControlName="assignedTo">
             <option [ngValue]="null">— Unassigned —</option>
-            @for (m of members(); track m.id) {
+            @for (m of lookup.members(); track m.id) {
               <option [ngValue]="m.id">
                 {{ m.firstName }} {{ m.lastName }} ({{ m.email }})
               </option>
@@ -213,9 +212,9 @@ const DESCRIPTION_MAX = 2000;
     `,
   ],
 })
-export class InspectionFormComponent implements OnInit {
+export class InspectionFormComponent {
   private readonly fb = inject(FormBuilder);
-  private readonly tenants = inject(TenantService);
+  protected readonly lookup = inject(TenantMemberLookupService);
 
   /** When provided, the form hydrates from it on init (edit flow). */
   readonly initialValue = input<Inspection | null>(null);
@@ -227,8 +226,6 @@ export class InspectionFormComponent implements OnInit {
   /** Emitted with a payload ready for InspectionsService.create / update. */
   readonly submitted = output<CreateInspectionPayload>();
   readonly cancelled = output<void>();
-
-  protected readonly members = signal<TenantMember[]>([]);
 
   protected readonly titleMax = TITLE_MAX;
   protected readonly descriptionMax = DESCRIPTION_MAX;
@@ -263,6 +260,11 @@ export class InspectionFormComponent implements OnInit {
   private readonly lastPatchedId = signal<string | null>(null);
 
   constructor() {
+    // Roster load is fire-and-forget — the shared lookup service caches
+    // and deduplicates across the app, so multiple forms + list pages
+    // don't stampede the endpoint.
+    void this.lookup.ensureLoaded();
+
     effect(() => {
       const initial = this.initialValue();
       if (!initial) return;
@@ -278,10 +280,6 @@ export class InspectionFormComponent implements OnInit {
       });
       this.lastPatchedId.set(initial.id);
     });
-  }
-
-  async ngOnInit(): Promise<void> {
-    this.members.set(await this.tenants.getTenantMembers());
   }
 
   protected showError(name: keyof typeof this.form.controls): boolean {

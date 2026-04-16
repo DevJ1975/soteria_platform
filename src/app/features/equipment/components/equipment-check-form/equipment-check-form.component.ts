@@ -69,6 +69,7 @@ const NOTE_MAX = 1000;
             type="datetime-local"
             class="sot-input"
             formControlName="performedAt"
+            [attr.max]="maxPerformedAt"
           />
         </div>
 
@@ -211,6 +212,13 @@ export class EquipmentCheckFormComponent {
   readonly cancelled = output<void>();
 
   protected readonly noteMax = NOTE_MAX;
+
+  /**
+   * Cap the datetime-local picker at "now" so operators can't record a
+   * check as having been performed in the future. Set once at render;
+   * close-enough for a form the user submits immediately.
+   */
+  protected readonly maxPerformedAt = localNow();
 
   protected readonly statusOptions: Array<{ value: EquipmentCheckStatus; label: string }> = [
     { value: 'pass', label: EQUIPMENT_CHECK_STATUS_LABEL.pass },

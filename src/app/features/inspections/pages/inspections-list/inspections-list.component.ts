@@ -9,7 +9,7 @@ import {
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
-import { TenantMember, TenantService } from '@core/services/tenant.service';
+import { TenantMemberLookupService } from '@core/services/tenant-member-lookup.service';
 import { EmptyStateComponent } from '@shared/components/empty-state/empty-state.component';
 import { IconComponent } from '@shared/components/icon/icon.component';
 import { PageHeaderComponent } from '@shared/components/page-header/page-header.component';
@@ -126,7 +126,7 @@ const SEARCH_DEBOUNCE_MS = 250;
         >
           <option value="all">Everyone</option>
           <option value="me">Assigned to me</option>
-          @for (m of members(); track m.id) {
+          @for (m of lookup.members(); track m.id) {
             <option [value]="m.id">{{ m.firstName }} {{ m.lastName }}</option>
           }
         </select>
@@ -203,7 +203,7 @@ const SEARCH_DEBOUNCE_MS = 250;
                 <td>{{ typeLabel(inspection) }}</td>
                 <td><sot-inspection-status-chip [status]="inspection.status" /></td>
                 <td><sot-inspection-priority-chip [priority]="inspection.priority" /></td>
-                <td>{{ assigneeName(inspection.assignedTo) }}</td>
+                <td>{{ lookup.formatName(inspection.assignedTo) }}</td>
                 <td>{{ inspection.dueDate ?? '—' }}</td>
                 <td class="table__actions">
                   <a
@@ -307,12 +307,11 @@ const SEARCH_DEBOUNCE_MS = 250;
 })
 export class InspectionsListComponent implements OnInit {
   private readonly service = inject(InspectionsService);
-  private readonly tenants = inject(TenantService);
+  protected readonly lookup = inject(TenantMemberLookupService);
   private readonly guard = createGenerationGuard();
   private readonly debounceSearch = createDebouncer(SEARCH_DEBOUNCE_MS);
 
   protected readonly inspections = signal<Inspection[]>([]);
-  protected readonly members = signal<TenantMember[]>([]);
   protected readonly loading = signal(false);
   protected readonly errorMessage = signal<string | null>(null);
   protected readonly filters = signal<InspectionFilters>({});
@@ -328,15 +327,6 @@ export class InspectionsListComponent implements OnInit {
     );
   });
 
-  /** id → "First Last" lookup built once per roster load. */
-  private readonly memberLookup = computed(() => {
-    const map = new Map<string, string>();
-    for (const m of this.members()) {
-      map.set(m.id, `${m.firstName} ${m.lastName}`.trim() || m.email);
-    }
-    return map;
-  });
-
   protected readonly statusOptions = (
     Object.keys(INSPECTION_STATUS_LABEL) as InspectionStatus[]
   ).map((value) => ({ value, label: INSPECTION_STATUS_LABEL[value] }));
@@ -348,14 +338,10 @@ export class InspectionsListComponent implements OnInit {
   protected readonly typeLabel = (i: Inspection): string =>
     INSPECTION_TYPE_LABEL[i.inspectionType] ?? i.inspectionType;
 
-  protected readonly assigneeName = (id: string | null): string =>
-    id ? this.memberLookup().get(id) ?? 'Unknown' : 'Unassigned';
-
   async ngOnInit(): Promise<void> {
-    // Fire the roster load in parallel with the first refresh — users see
-    // the table render before the assignee names resolve, but that's fine:
-    // assignee cells show 'Unknown' briefly and then update.
-    void this.tenants.getTenantMembers().then((rows) => this.members.set(rows));
+    // Fire the roster load in parallel — the lookup is a cached singleton
+    // so multiple list pages share one fetch per session.
+    void this.lookup.ensureLoaded();
     await this.refresh();
   }
 

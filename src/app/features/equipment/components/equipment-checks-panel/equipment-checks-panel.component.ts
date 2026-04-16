@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   effect,
   inject,
   input,
@@ -8,12 +9,13 @@ import {
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
-import { TenantMember, TenantService } from '@core/services/tenant.service';
+import { TenantMemberLookupService } from '@core/services/tenant-member-lookup.service';
 import { createGenerationGuard } from '@shared/utils/async-guards.util';
 import { extractErrorMessage } from '@shared/utils/errors.util';
 
 import { EquipmentCheckStatusChipComponent } from '../equipment-check-status-chip/equipment-check-status-chip.component';
 import {
+  ACTIONABLE_EQUIPMENT_CHECK_STATUSES,
   EQUIPMENT_CHECK_TYPE_LABEL,
   EquipmentCheck,
 } from '../../models/equipment-check.model';
@@ -22,9 +24,14 @@ import { EquipmentChecksService } from '../../services/equipment-checks.service'
 /**
  * Reusable "Check history for this equipment" panel.
  *
- * Drops into the equipment detail page today; would also fit on a future
- * inspection page that references the equipment. Loads its own data and
- * owns its UI state; the host just passes `equipmentId`.
+ * Drops into the equipment detail page today; will also fit a future
+ * inspection page that references the equipment. Loads its own data,
+ * owns its UI state, deep-links "Record check" with the current
+ * equipment pre-filled.
+ *
+ * Performer names come from the shared TenantMemberLookupService so the
+ * roster is fetched once per session regardless of how many panels /
+ * list pages render it.
  */
 @Component({
   selector: 'sot-equipment-checks-panel',
@@ -37,7 +44,12 @@ import { EquipmentChecksService } from '../../services/equipment-checks.service'
         <div>
           <h2 class="panel__title">Check history</h2>
           <p class="panel__subtitle">
-            Recorded checks against this equipment, newest first.
+            Recorded checks, newest first.
+            @if (actionableCount() > 0) {
+              <span class="panel__count">
+                · {{ actionableCount() }} actionable
+              </span>
+            }
           </p>
         </div>
         <a
@@ -64,19 +76,17 @@ import { EquipmentChecksService } from '../../services/equipment-checks.service'
         <ul class="panel__list">
           @for (c of checks(); track c.id) {
             <li class="row">
-              <div class="row__main">
-                <div class="row__top">
-                  <sot-equipment-check-status-chip [status]="c.status" />
-                  <span class="row__type">{{ typeLabel(c) }}</span>
-                </div>
-                @if (c.notes) {
-                  <p class="row__notes">{{ c.notes }}</p>
-                }
-                <p class="row__meta">
-                  {{ formatDate(c.performedAt) }} ·
-                  {{ performerName(c.performedBy) }}
-                </p>
+              <div class="row__top">
+                <sot-equipment-check-status-chip [status]="c.status" />
+                <span class="row__type">{{ typeLabel(c) }}</span>
               </div>
+              @if (c.notes) {
+                <p class="row__notes">{{ c.notes }}</p>
+              }
+              <p class="row__meta">
+                {{ formatDate(c.performedAt) }} ·
+                {{ lookup.formatName(c.performedBy, 'Unknown') }}
+              </p>
             </li>
           }
         </ul>
@@ -104,6 +114,11 @@ import { EquipmentChecksService } from '../../services/equipment-checks.service'
       .panel__subtitle {
         color: var(--color-text-muted);
         font-size: var(--font-size-sm);
+      }
+
+      .panel__count {
+        color: var(--color-warning);
+        font-weight: 600;
       }
 
       .panel__empty {
@@ -157,39 +172,39 @@ import { EquipmentChecksService } from '../../services/equipment-checks.service'
 })
 export class EquipmentChecksPanelComponent {
   private readonly service = inject(EquipmentChecksService);
-  private readonly tenants = inject(TenantService);
+  protected readonly lookup = inject(TenantMemberLookupService);
   private readonly guard = createGenerationGuard();
 
   readonly equipmentId = input.required<string>();
 
   protected readonly checks = signal<EquipmentCheck[]>([]);
-  protected readonly members = signal<TenantMember[]>([]);
   protected readonly loading = signal(false);
   protected readonly errorMessage = signal<string | null>(null);
 
+  /** Derived from the loaded rows — no extra query needed. */
+  protected readonly actionableCount = computed(
+    () =>
+      this.checks().filter((c) =>
+        ACTIONABLE_EQUIPMENT_CHECK_STATUSES.includes(c.status),
+      ).length,
+  );
+
   constructor() {
+    // Fire-and-forget — the lookup is cached and shared across the app.
+    void this.lookup.ensureLoaded();
+
     effect(() => {
       const id = this.equipmentId();
       if (!id) return;
       void this.refresh(id);
     });
-
-    // Fetch the roster once so we can render performer names, not UUIDs.
-    void this.tenants.getTenantMembers().then((r) => this.members.set(r));
   }
 
   protected typeLabel(c: EquipmentCheck): string {
     return EQUIPMENT_CHECK_TYPE_LABEL[c.checkType] ?? c.checkType;
   }
 
-  protected performerName(id: string): string {
-    const match = this.members().find((m) => m.id === id);
-    if (!match) return 'Unknown';
-    return `${match.firstName} ${match.lastName}`.trim() || match.email;
-  }
-
   protected formatDate(iso: string): string {
-    // Locale-sensitive date + time; the raw ISO is ugly for users.
     const d = new Date(iso);
     return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
   }

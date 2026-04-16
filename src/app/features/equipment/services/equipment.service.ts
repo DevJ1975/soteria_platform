@@ -2,7 +2,10 @@ import { inject, Injectable } from '@angular/core';
 
 import { AuthService } from '@core/services/auth.service';
 import { SupabaseService } from '@core/services/supabase.service';
-import { escapeIlikePattern } from '@shared/utils/errors.util';
+import {
+  escapeIlikePattern,
+  sanitizeOrFilterTerm,
+} from '@shared/utils/errors.util';
 
 import {
   CreateEquipmentPayload,
@@ -39,10 +42,13 @@ export class EquipmentService {
       query = query.eq('equipment_type', filters.equipmentType);
     }
     if (filters.searchText?.trim()) {
-      // Match on either name or asset_tag so a user can find an asset
-      // by either identifier. PostgREST `or` filter with comma-joined
-      // predicates handles this in one round-trip.
-      const pattern = escapeIlikePattern(filters.searchText.trim());
+      // Match on either name or asset_tag so operators can find an asset
+      // by either identifier in one round-trip. sanitizeOrFilterTerm
+      // strips PostgREST's filter-list delimiters (commas, double quotes)
+      // before escapeIlikePattern handles SQL wildcards.
+      const pattern = escapeIlikePattern(
+        sanitizeOrFilterTerm(filters.searchText.trim()),
+      );
       query = query.or(
         `name.ilike.%${pattern}%,asset_tag.ilike.%${pattern}%`,
       );
